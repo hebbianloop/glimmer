@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Generated RO-KB instances (each project should generate its own)
+examples/*/rokb/
+examples/*/verdicts*.json
+
+# OS junk
+.DS_Store
