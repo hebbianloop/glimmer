@@ -1,0 +1,208 @@
+# Glimmer Schema v0.1.0 — Front-Matter Field Definitions
+#
+# This file is the machine-readable contract for what fields each entity type
+# must, may, and may not have in its sidecar front-matter. Validators consume
+# this file directly; the human-readable spec is in `schema.md`.
+#
+# Format: YAML, intentionally simple. Each entity type is a top-level key.
+# Under each type:
+#   required:        — fields that MUST be present
+#   optional:        — fields that MAY be present
+#   edges-allowed:   — edge types whose target is permitted from this node type
+#   body-required:   — whether the markdown body after the front-matter is required
+#
+# A field listed without a type-spec is free-form. Type specs use a small set
+# of tokens: string, int, datetime, sha256, [list-of-strings], <node-id>,
+# <enum:{a,b,c}>, edges-list (defined below).
+#
+# An edges-list is a sequence of mappings, each with:
+#   type:     (string) edge label, see below
+#   target:   (string) the target node id
+#   ... arbitrary additional metadata (version, parameters-hash, comment, ...)
+#
+# Edge type vocabulary is defined per-source-node-type via the `edges-allowed`
+# field on each type. A validator should reject any edge whose `type` is not
+# in the allowed list for that source's entity type.
+
+schema-version: "0.1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# common fields — every Glimmer node has these
+# ─────────────────────────────────────────────────────────────────────────────
+_common:
+  required:
+    id:                string                   # kebab-case, unique within dataset
+    type:              <enum:{dataset,method,derivative,standard,qc-artifact,rater,publication}>
+    name:              string                   # human-readable
+    created:           datetime                 # ISO 8601, UTC preferred
+    modified:          datetime                 # ISO 8601, UTC preferred
+  optional:
+    provenance-hash:   sha256                   # SHA-256 of body content; auto-computed
+    description:       string                   # short free-text agent-readable summary
+    edges:             edges-list               # outgoing edges; see edges-allowed per type
+
+# ─────────────────────────────────────────────────────────────────────────────
+# dataset — BIDS-conformant data (subject, session, scan, or aggregate)
+# ─────────────────────────────────────────────────────────────────────────────
+dataset:
+  inherits: _common
+  required:
+    subject-id:        string                   # the participant identifier
+  optional:
+    session:           string                   # optional session label
+    modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
+    acquisition-date:  datetime
+    scanner:           string                   # e.g., "Siemens 3T TimTrio"
+    metrics:           map                      # tool-extracted QC metrics
+    bids-version:      string                   # e.g., "1.8.0"
+  edges-allowed:
+    - produced-by      # → method
+    - derives-from     # → dataset (parent)
+    - conforms-to      # → standard
+    - has-qc-artifact  # → qc-artifact
+    - cited-in         # → publication
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# method — a named analysis or pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+method:
+  inherits: _common
+  required:
+    tool:              string                   # e.g., "recon-all"
+    version:           string                   # e.g., "freesurfer-6.0.0"
+  optional:
+    parameters:        map                      # invocation parameters
+    parameters-hash:   sha256                   # hash over the parameter manifest
+    container-image:   string                   # e.g., "nipreps/fmriprep:23.0.2"
+    container-digest:  string                   # sha256 of the container image
+  edges-allowed:
+    - applies-to         # → dataset
+    - produces           # → derivative
+    - validates-against  # → publication
+    - requires-standard  # → standard
+  body-required: true     # body should describe what the method does in plain language
+
+# ─────────────────────────────────────────────────────────────────────────────
+# derivative — output of applying a method to a dataset (first-class node)
+# ─────────────────────────────────────────────────────────────────────────────
+derivative:
+  inherits: _common
+  required:
+    output-kind:       <enum:{volume,surface,timeseries,statistical-map,table,figure,other}>
+  optional:
+    output-path:       string                   # relative path on disk if applicable
+    output-format:     string                   # e.g., "nifti", "gifti", "csv"
+  edges-allowed:
+    - produced-by       # → method
+    - derives-from      # → dataset
+    - has-qc-artifact   # → qc-artifact
+    - cited-in          # → publication
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# standard — a spec, atlas, template, rating scale
+# ─────────────────────────────────────────────────────────────────────────────
+standard:
+  inherits: _common
+  required:
+    standard-class:    <enum:{spec,atlas,template,rating-scale,protocol,other}>
+  optional:
+    version:           string                   # version of THIS standard
+    scale:             map                      # for rating-scale: ordinal → label map
+    categories:        [list-of-strings]        # for rating-scale: anatomical categories
+    upstream-url:      string                   # canonical authority for this standard
+  edges-allowed:
+    - defines           # → standard (sub-standards)
+    - versions          # → standard (relates versions)
+  body-required: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# qc-artifact — a QC pass/fail decision, manual edit, visual report, metric record
+# ─────────────────────────────────────────────────────────────────────────────
+qc-artifact:
+  inherits: _common
+  required:
+    artifact-kind:     <enum:{ordinal-rating,binary-passfail,manual-edit,visual-report,metric-record}>
+  optional:
+    ratings:           map                      # for ordinal: {category: 0..5, ...}
+    decision:          <enum:{pass,fail,needs-review}>     # for binary
+    notes:             string
+    edit-summary:      string                   # for manual-edit
+    visual-report-uri: string                   # for visual-report
+  edges-allowed:
+    - attests-to-quality-of   # → dataset OR derivative
+    - issued-by               # → rater
+    - conforms-to             # → standard (which rating scale)
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# rater — a human or AI who issued QC judgments
+# ─────────────────────────────────────────────────────────────────────────────
+rater:
+  inherits: _common
+  required:
+    role:              <enum:{human,agent}>
+  optional:
+    expertise:         <enum:{trainee,intermediate,senior,domain-expert}>
+    training-date:     datetime
+    affiliation:       string
+    orcid:             string                   # ORCID iD if human
+    model-identifier:  string                   # model name/version if agent
+  edges-allowed:
+    - issued           # → qc-artifact (one or many)
+    - trained-on       # → standard (which rating scale)
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# publication — paper draft, abstract, preprint
+# ─────────────────────────────────────────────────────────────────────────────
+publication:
+  inherits: _common
+  required:
+    pub-status:        <enum:{draft,submitted,accepted,published,abstract,preprint}>
+  optional:
+    venue:             string                   # journal / conference / preprint server
+    doi:               string
+    year:              int
+    title:             string                   # full title if different from `name`
+    authors:           [list-of-strings]        # author names; may also have author edges to persona nodes
+  edges-allowed:
+    - cites-dataset
+    - cites-method
+    - cites-derivative
+    - cites              # generic citation
+    - authored-by        # → rater or external author identifier
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# index file — required at the dataset root
+# ─────────────────────────────────────────────────────────────────────────────
+_glimmer-index:
+  filename: "_glimmer-index.json"
+  required:
+    schema:            string                   # e.g., "glimmer/v0.1.0"
+    dataset-name:      string
+    node-count:        int
+    nodes:             [list-of-nodes]          # each node: {id, type, path}
+  optional:
+    created:           datetime
+    description:       string
+    upstream-graph:    string                   # if this graph is a sub-graph of a larger one
+
+# ─────────────────────────────────────────────────────────────────────────────
+# validator hints — non-binding suggestions
+# ─────────────────────────────────────────────────────────────────────────────
+_validator-hints:
+  warn-if:
+    - "qc-artifact node has no `conforms-to` edge to a standard"
+    - "dataset node has no `produced-by` edge"
+    - "rater node has issued QC artifacts but no `trained-on` edge"
+    - "publication node has no `cites-*` edges"
+  error-if:
+    - "node `id` is not kebab-case"
+    - "node `id` is not unique within the dataset"
+    - "edge target does not exist in the index"
+    - "edge type is not in the allowed list for the source node's type"
+    - "required field is missing"
+    - "field value does not match its type-spec"
