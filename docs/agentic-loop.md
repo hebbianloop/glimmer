@@ -93,6 +93,44 @@ The ADS / CLAD project (the parent dataset of the CAISC 2026 paper) has five pri
    - The reviewer can drill into any `qc-artifact` or `derivative` and inspect the evidence chain.
    - Approve → the synthesis becomes the paper draft; revise → the agent re-runs with a constrained protocol; reject → the concept gets a `superseded-by` edge to a refined replacement.
 
+## Verifiability at every loop step
+
+The agent protocol (`docs/agent-protocol.md`) requires every agent-issued output to carry a `reasoning-trace`. The agentic loop applies this requirement at every step:
+
+| Loop step | What enters the graph | What its `reasoning-trace` cites |
+|---|---|---|
+| Concept decomposition | `concept` nodes (sub-hypotheses) | The parent concept; the standards adopted for testing it |
+| Literature traversal | `publication` nodes | The external sources walked; the concepts each cited work addresses |
+| QC | `qc-artifact` nodes | The `dataset` + `method` + `standard` nodes that grounded the rating; metrics weighted; mode (blind/informed) |
+| Analysis | `derivative` nodes | The input `dataset` SHA; the `method` SHA; the parameters; the `provenance-mode` (deterministic for Nipype/PyMVPA, agent-inferred for LLM-only) |
+| Synthesis | draft `publication` nodes | The chain of `derivative` + `qc-artifact` + cited `publication` nodes; the agent's argument structure |
+
+The point is that each step's output IS audit-traceable to its inputs, because Glimmer enforces the reasoning-trace requirement at the schema level. There is no point in the loop where verifiability is optional.
+
+## Extraction of findings → mapping to concepts and research questions
+
+When a synthesis agent produces a draft `publication` node, it must also produce a `concept` edge: `addresses-concept: → <concept-node-id>`. This is how the loop closes the link between findings and the research question that motivated them. A finding without a concept edge is ungrounded; the agent protocol treats it as `needs-review`.
+
+The pattern composes:
+- A research program contains many concepts (e.g., the five priority-7 papers on the ADS Project & People Inventory).
+- Each concept can have multiple agent-emitted findings (publications, derivatives, qc-artifacts).
+- The agent walks the concept's incoming edges to enumerate everything the program has produced about that question.
+- The synthesis agent operating at meta-analysis scope walks across concepts and identifies which findings reinforce, contradict, or extend each other (edges: `supports`, `contradicts`, `extends-concept`, `subsumed-by`).
+
+This is what makes Glimmer a *research-program-scale* substrate, not just a project-scale one.
+
+## Standards conformance at every step
+
+Each loop step interacts with an applicable standard:
+
+- Concept decomposition → uses a hypothesis-template standard (a `standard` node defining what constitutes a falsifiable claim).
+- Literature traversal → uses citation-standard (cito, CRediT, OpenAlex).
+- QC → uses a rating-scale `standard` (the QC scale; conforms-to edge required).
+- Analysis → uses pipeline-standard (BIDS-Derivatives spec; NIDM-Results; Nipype workflow spec).
+- Synthesis → uses publication-standard (the target venue's template).
+
+The agent's reasoning-trace cites which standards were applied. A reviewer reading the trace can verify standards adherence without having to inspect the data directly.
+
 ## Why this matters beyond the immediate project
 
 The agentic loop applied to research is structurally identical to the agentic loop applied to software engineering, customer support, or any other multi-step knowledge work. Glimmer is the substrate that makes it scientific: typed entities, versioned edges, evidence traces, standards conformance. The loop produces verifiable scientific outputs because the substrate enforces verifiability.
