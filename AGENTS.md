@@ -51,8 +51,8 @@ glimmer validate examples/training-fsqc/rokb/
 | Apply Glimmer to a new dataset | New subdirectory in `examples/` | Start by adapting `examples/training-fsqc/`. |
 | Improve the reference agent | `glimmer/tools/agent.py` | Keep it minimal — see `docs/design-rationale.md` on why the agent's tool set is deliberately small. |
 | Add interoperability with BIDS / NIDM / RO-Crate | `glimmer/tools/import_*.py`, `glimmer/tools/export_*.py` | See `docs/interop.md` for the cross-standard mapping. |
-| Add a project-specific agent (fMRI QC, DWI QC, behavior coding) | Inside your project's directory under `examples/` | Reuse the primitives in `glimmer/tools/agent.py`; do not add domain logic to the core. |
-| Run inter-rater scoring | `glimmer/tools/score.py` | Inputs: a verdicts JSON from the agent, an RO-KB directory. Outputs: a κ matrix + figure. |
+| Add a project-specific agent (analysis-trace verification, finding synthesis, literature review) | Inside your project's directory under `examples/` | Reuse the primitives in the reference agent in the canonical example; do not add domain logic to the core. |
+| Verify a trace | `python examples/<your-example>/verify.py` | Re-runs each derivative's method on its cited dataset SHA + compares output hashes. |
 
 ## Conventions
 
@@ -73,12 +73,22 @@ When you encounter a schema-shape question that is not answered by `glimmer/sche
 Run these in order and confirm all pass before reporting a task complete:
 
 ```bash
-glimmer build --example training-fsqc   # rebuilds the example cleanly
-glimmer validate examples/training-fsqc/rokb/   # exits 0
-python -c "import yaml; [yaml.safe_load(open(f).read().split('---\n')[1]) for f in __import__('glob').glob('examples/training-fsqc/rokb/**/*.md', recursive=True)]"   # every sidecar parses as YAML
+# Build the canonical worked example (requires DataLad + Nipype + FSL)
+cd examples/ds000114-nipype
+bash install.sh
+python workflow.py
+python emit_graph.py
+
+# Validate the emitted graph against the schema
+glimmer validate rokb/
+
+# Verify the trace — re-run the cited methods, confirm output hashes match
+python verify.py
 ```
 
-For changes that touch `glimmer/tools/agent.py`: re-run the agent on the example in both `--blind` and `--informed` conditions and confirm the agent's mean κ against the seven humans remains within ±0.05 of the reported values (blind ≈ +0.07, informed ≈ +0.58). Drift outside this range indicates your change has altered the architectural claim — surface it explicitly.
+For changes that touch the schema or the verification routine: re-run `verify.py` on the canonical example and confirm the verifiability rate remains at 100% for deterministic operations. Drift indicates your change has altered the architectural claim — surface it explicitly in the PR.
+
+When working without FSL installed locally, the architectural changes can still be validated against the schema (`glimmer validate`) without running the workflow. Just don't claim the workflow ran.
 
 ## Things to never do
 

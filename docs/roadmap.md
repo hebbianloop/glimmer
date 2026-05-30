@@ -9,7 +9,7 @@ Targeted improvements that lower adoption friction without changing the core sch
 - [ ] `glimmer import-bids` — walk a BIDS-conformant project and emit a Glimmer overlay.
 - [ ] `glimmer export-rocrate` — emit an RO-Crate manifest from a Glimmer RO-KB.
 - [ ] JSON-LD context file at `https://glimmer.io/context/v0.1.jsonld`.
-- [ ] Cross-tool QC adapters: import MRIQC, fMRIPrep, QSIPrep reports as `qc-artifact` / `derivative` nodes.
+- [ ] Cross-tool report adapters: import MRIQC, fMRIPrep, QSIPrep outputs as `derivative` + `finding` nodes.
 - [ ] `glimmer validate --include-bids` invokes the BIDS validator and merges results.
 
 ## v0.3 — The Meta-Graph + Experiments + Autoresearch
@@ -20,7 +20,7 @@ The architectural extension that scales Glimmer beyond a single dataset to span 
 
 | Type | Role |
 |---|---|
-| **`persona`** | A person (researcher, lab head, collaborator) or an organizational role. Supersedes `rater` for non-QC contexts. A `persona` can `author` publications, `lead` concepts, `contribute-to` datasets, `mentor` other personas. |
+| **`persona`** | A person (researcher, lab head, collaborator) or an organizational role. A `persona` can `author` publications, `lead` concepts, `contribute-to` datasets, `mentor` other personas. |
 | **`concept`** | An abstract research theme, hypothesis, or open question. Concepts contain datasets and produce publications. They are the unit at which research programs operate — what a grant funds, what a thesis defends, what a meta-analysis examines. |
 | **`organization`** | An institution, lab, consortium, journal, funding body, or other organizational entity. Personas have affiliations; concepts may have institutional homes; publications have venues. |
 | **`experiment`** | A behavioral or imaging experimental paradigm shipped as a reproducible artifact — typically an [Experiment Factory](https://expfactory.org) container, a jsPsych task, or a PsychoPy script. The experiment node carries its container digest, its dependencies on `method` nodes, and produces `dataset` nodes when it is run. |
@@ -103,13 +103,13 @@ This is what mrinit was reaching for but didn't reach. At v0.4 it lands as a fir
 
 At this point the reference agent (`glimmer/tools/agent.py`) has been the minimal QC agent. v0.4 promotes the agent's primitives into a reusable SDK:
 
-- `glimmer.agent.Tools` — class with `load_index`, `read_node`, `walk_edge`, `metric_distribution`, `render_*` methods, parameterized over arbitrary LLM clients.
-- `glimmer.agent.Reasoning` — base class for project-specific agents (fMRI QC, DWI QC, behavior coding, meta-analysis summarization). Authors of project agents subclass this and only fill in `render_*`.
-- `glimmer.agent.Trajectory` — explicit trace object that records every node read and every edge walked, so verdicts are auditable in a structured way.
+- `glimmer.agent.Tools` — class with `load_index`, `read_node`, `walk_edge`, `rerun_method`, `emit_finding` methods, parameterized over arbitrary LLM clients.
+- `glimmer.agent.Reasoning` — base class for project-specific agents (trace verification, finding synthesis, literature review, meta-analysis summarization). Authors of project agents subclass this and only fill in domain-specific reasoning.
+- `glimmer.agent.Trajectory` — explicit trace object that records every node read and every edge walked, so outputs are auditable in a structured way.
 
 ## v0.6 — Federation and shared schemas
 
-When two research groups maintain Glimmer projects on the same dataset (e.g., ADS+CLAD shared by Georgetown CFMI and the Fishbein cohort at Penn State), they should be able to publish their schemas, agents, and inter-rater κ baselines as a shared registry. v0.5 specifies:
+When two research groups maintain Glimmer projects on the same dataset, they should be able to publish their schemas, agents, and verification baselines as a shared registry. v0.6 specifies:
 
 - A schema-registry format for cross-institution publication of Glimmer extensions.
 - A reputation / provenance model for who proposed which schema extension.
@@ -123,7 +123,7 @@ This is also the natural junction with decentralized-science infrastructure (Ops
 - **Hypothesis nodes vs. concept nodes.** A hypothesis is a falsifiable, dated claim; a concept is a broader theme. v0.3's `concept` is intentionally vague. Should hypotheses split off as their own type?
 - **Citation as a typed edge, not generic `cites`.** PROV-CITO has ~50 citation predicates (`disagrees-with`, `extends`, `uses-method-in`, etc.). Worth adopting?
 - **Anti-claims and retractions.** A research-graph needs to encode that a result was retracted, contradicted, or superseded. Current schema does not model this. Probably needs a `supersedes` / `retracts` / `disputes` edge family.
-- **What if the agent disagrees with itself.** An agent run at time T₁ may produce a different verdict than the same agent at T₂ (different model version, different graph state). The graph should record both verdicts as separate `qc-artifact` nodes; the schema already supports this. We should document the pattern.
+- **What if the agent disagrees with itself.** An agent run at time T₁ may produce a different output than the same agent at T₂ (different model version, different graph state). The graph should record both outputs as separate `finding` nodes; the schema already supports this. We should document the pattern.
 - **Privacy as a node-level property.** A `dataset` node referring to participant data needs an access policy. v0.6+ should add `data-use-agreement` as a node type or as a constraint edge.
 
 ## How to contribute to the roadmap

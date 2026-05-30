@@ -15,23 +15,23 @@ The cost is query performance: traversing a 10,000-node Glimmer graph requires l
 
 Typing forces explicit decisions about what each artifact IS. A `dataset` and a `derivative` have different lifecycles: the former is acquired, the latter is computed. A `method` and a `standard` look similar (both reference external definitions) but obey different reasoning rules (a method node has parameters that can vary per-invocation; a standard node is immutable per-version). Typing makes these distinctions actionable for an agent.
 
-We resisted the temptation to add more types. Seven entity types is a deliberate ceiling. If a candidate new artifact looks like one of the existing seven, it should subclass via convention in the body rather than become a new top-level type.
+We resisted the temptation to add more types. Six entity types (v0.2) is a deliberate ceiling. If a candidate new artifact looks like one of the existing six, it should subclass via convention in the body rather than become a new top-level type.
 
 ## Why "edges are properties on source nodes" rather than separate edge nodes
 
-A `qc-artifact` node has an `attests-to-quality-of` edge listed in its sidecar, pointing to a `dataset` node ID. The reverse direction is computed at index load (the `dataset` node's "incoming attestation" list).
+A `derivative` node has a `produced-by` edge in its sidecar, pointing to a `method` node ID. The reverse direction (which derivatives a given method produced) is computed at index load.
 
 We chose this asymmetric storage because:
 
 - It mirrors how BIDS sidecars already work (metadata stored alongside the artifact it describes).
-- It avoids edge-node proliferation: in a 30-node graph, separately-stored edges would mean 50+ additional files.
+- It avoids edge-node proliferation: separately-stored edges would mean many small files for no semantic gain.
 - Indexing bidirectionally at load time is cheap and keeps the storage layer simple.
 
-The cost: an agent cannot answer "which raters trained on this rating scale" without loading every rater sidecar. In practice, the index file precomputes this lookup at build time.
+The cost: an agent cannot answer "which findings cite this derivative" without loading every finding sidecar. In practice, the index file precomputes this lookup at build time.
 
 ## Why the agent's tools are minimal
 
-The Glimmer agent has only five primitive operations: `load_index`, `read_node`, `walk_edge`, `metric_distribution`, `render_qc_rating`. We deliberately did not provide:
+The Glimmer agent has only five primitive operations: `load_index`, `read_node`, `walk_edge`, `rerun_method`, `emit_finding`. We deliberately did not provide:
 
 - Vector search over node bodies (too easy for the agent to skip principled traversal).
 - Auto-summarization of large nodes (truncation hides structure; better to let the agent paginate explicitly).

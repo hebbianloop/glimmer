@@ -29,7 +29,7 @@ What this means in practice:
 - **A Glimmer node's serialization** (JSON, YAML+Markdown, JSON-LD, TOML, even Org-mode if you like) is a deployment choice, not an architectural one.
 - **The agent translates.** If a downstream consumer wants BIDS JSON, the agent emits BIDS JSON. If a human collaborator wants YAML+MD for legibility, the agent emits YAML+MD. The validator checks the structure-after-translation.
 
-The reference implementation in this repo uses YAML-front-matter Markdown for standalone Glimmer entities (rater, standard, qc-artifact, publication, method, derivative) because it composes well with personal-knowledge-base tooling researchers already use. It uses BIDS-native JSON when extending an existing BIDS sidecar (see below). These are conventions, not commitments.
+The reference implementation in this repo uses YAML-front-matter Markdown for standalone Glimmer entities (method, derivative, finding, standard, publication) because it composes well with personal-knowledge-base tooling researchers already use. It uses BIDS-native JSON when extending an existing BIDS sidecar (see below). These are conventions, not commitments.
 
 ## Cross-reading BIDS sidecars
 
@@ -54,7 +54,7 @@ A BIDS-conformant dataset already contains JSON sidecars. To make these legible 
 
 Tools that don't understand `_x-glimmer` ignore it (the BIDS validator continues to pass). Tools that do understand it index the BIDS sidecar as a Glimmer `dataset` node.
 
-When the Glimmer agent emits a new node for a non-BIDS entity (a `rater`, `qc-artifact`, `standard`), it writes a YAML-front-matter Markdown file. When the agent reads a Glimmer graph for analysis, it translates both formats into an in-memory graph and reasons over the unified structure. Round-tripping between the formats is the agent's responsibility.
+When the Glimmer agent emits a new node for a non-BIDS entity (a `method`, `derivative`, `finding`, `standard`, or `publication`), it writes a YAML-front-matter Markdown file. When the agent reads a Glimmer graph for analysis, it translates both formats into an in-memory graph and reasons over the unified structure. Round-tripping between the formats is the agent's responsibility.
 
 ## Validating across both layers
 
@@ -86,7 +86,7 @@ This is **not yet implemented in v0.1.** The plan for v0.2:
 1. Walk the BIDS file tree.
 2. Create a `dataset` node per scan and per subject.
 3. Read the `dataset_description.json` and create `publication` nodes for any `ReferencesAndLinks` entries.
-4. Read any existing MRIQC, fMRIPrep, or QSIPrep reports and create `qc-artifact` and `derivative` nodes pointing to them.
+4. Read any existing MRIQC, fMRIPrep, or QSIPrep reports and create `derivative` nodes pointing to them; emit `finding` nodes for the QC summary numbers each report produces.
 5. Emit the `_glimmer-index.json`.
 
 PRs welcome.
@@ -140,9 +140,8 @@ Glimmer entity     ←→  schema.org              ←→  PROV-O
 dataset            ←→  Dataset                 ←→  prov:Entity
 method             ←→  SoftwareApplication     ←→  prov:Activity
 derivative         ←→  Dataset / Result        ←→  prov:Entity (wasGeneratedBy method)
+finding            ←→  Claim / Assertion       ←→  prov:Entity (with reasoning-trace)
 standard           ←→  DefinedTerm / CreativeWork  ←→  (none — out-of-scope for PROV)
-qc-artifact        ←→  Comment / Review        ←→  prov:Entity
-rater              ←→  Person                  ←→  prov:Agent
 publication        ←→  ScholarlyArticle        ←→  prov:Entity
 ```
 
@@ -151,7 +150,7 @@ Edge mappings:
 produced-by            ←→  schema:creator    /  prov:wasGeneratedBy
 derives-from           ←→  schema:isBasedOn  /  prov:wasDerivedFrom
 conforms-to            ←→  schema:conformsTo
-attests-to-quality-of  ←→  schema:reviews
+based-on               ←→  schema:isBasedOn  /  prov:wasDerivedFrom
 issued-by              ←→  schema:author     /  prov:wasAttributedTo
 cites-*                ←→  schema:citation   /  cito:cites
 ```

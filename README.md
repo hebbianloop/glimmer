@@ -2,17 +2,19 @@
 
 > **A research-object knowledge base for AI-native scientific workflows.**
 >
-> Reproducibility is a knowledge-graph problem, not a tooling problem. Glimmer is the graph layer.
+> The 2010s gave us reproducible pipelines. Glimmer is the next layer up — the typed-entity graph that makes the agentic feedback loop traversable over those pipelines.
 
-[![Status: v0.1](https://img.shields.io/badge/status-v0.1-blue.svg)](https://github.com/hebbianloop/glimmer)
+[![Status: v0.2](https://img.shields.io/badge/status-v0.2-blue.svg)](https://github.com/hebbianloop/glimmer)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Template](https://img.shields.io/badge/repo-template-purple.svg)](https://github.com/hebbianloop/glimmer/generate)
 
 ## What this is
 
-Existing standards (BIDS, DataLad, NIDM) give your project syntactic structure. Glimmer adds the **graph layer**: methods, datasets, derivatives, QC artifacts, raters, and standards become first-class typed nodes with versioned edges, distributed across per-entity sidecars. An AI agent traverses the graph to render decisions with auditable reasoning traces.
+Existing standards (BIDS, DataLad, NIDM, Nipype) give your project syntactic structure. Glimmer adds the **graph layer**: datasets, methods, derivatives, findings, standards, and publications become first-class typed nodes with versioned edges, distributed across per-entity sidecars. An AI agent traverses the graph to render verifiable decisions with auditable reasoning traces.
 
-Glimmer is the architectural pattern + a reference implementation. The full case for it is in the CAISC 2026 paper *Reproducibility as Knowledge Graph Navigation* (see [`docs/paper-citation.md`](docs/paper-citation.md)).
+Glimmer is domain-agnostic. The canonical worked example in this repo is neuroimaging because that's where standards like BIDS and tools like DataLad and Nipype are most developed — but the architectural pattern (typed-entity graph over a versioned-data substrate) applies to any compute-intensive scientific domain backed by a mature standards ecosystem.
+
+Glimmer is the architectural pattern + a reference implementation. The full case for it is in the CAISC 2026 paper (see [`docs/paper-citation.md`](docs/paper-citation.md)).
 
 ## How to use this repo
 
@@ -21,7 +23,7 @@ Glimmer is the architectural pattern + a reference implementation. The full case
 **Fork or use-as-template** (the green button on GitHub). Then:
 
 1. Keep the `glimmer/` directory unchanged — that's the core schema + tooling.
-2. Replace `examples/training-fsqc/` with your own project data and sidecars.
+2. Replace `examples/ds000114-nipype/` with your own project data and sidecars (or keep it as reference).
 3. Pin the Glimmer core version in your project's `glimmer-version` file.
 4. Do your project work in your fork. **Don't modify `glimmer/` in your fork** unless you intend to send a PR back here.
 
@@ -40,38 +42,52 @@ The line between "core" and "project" is the `glimmer/` directory. Anything insi
 ```
 glimmer/
 ├── schema/
-│   ├── schema.md            # v0.1 spec — 7 entity types, edge taxonomy, sidecar format
-│   └── glimmer-version      # current core version
+│   ├── schema.md            # v0.2 spec — 6 entity types, edge taxonomy, sidecar format
+│   ├── frontmatter.yaml     # machine-readable contract for validators
+│   └── glimmer-version      # current core version (0.2.0)
 └── tools/
-    ├── build_rokb.py        # reference builder: assemble a Glimmer RO-KB from typed data
-    ├── agent.py             # reference QC agent over a Glimmer graph
-    ├── score.py             # inter-rater κ scorer with Glimmer-format inputs
-    └── figure_schema.py     # render the schema diagram from glimmer/schema/
+    ├── validate.py          # schema validator (enforces agent-protocol verifiability)
+    ├── cli.py               # `glimmer` CLI single entry point
+    └── figure_schema.py     # render the schema diagram
 
 examples/
-└── training-fsqc/           # worked example from the CAISC 2026 paper
-    ├── raw/                 # the source CSV (3 subjects × 7 raters × 7 categories)
-    ├── rokb/                # generated Glimmer-conformant RO-KB (30 nodes)
-    └── README.md            # walks through the build + agent + score loop
+└── ds000114-nipype/         # canonical worked example from the CAISC 2026 paper
+    ├── install.sh           # `datalad install ///openneuro/ds000114` + selective `datalad get`
+    ├── workflow.py          # Nipype anatomical preprocessing (BET → FAST)
+    ├── emit_graph.py        # walk the workflow's provenance + emit Glimmer sidecars
+    ├── verify.py            # re-run the cited methods + confirm output hashes match
+    └── rokb/                # generated Glimmer instance after running the steps above
 
 docs/
 ├── paper-citation.md        # how to cite Glimmer + the CAISC 2026 paper
 ├── design-rationale.md      # why typed-entity sidecars over a central database
 ├── extending-the-schema.md  # process for proposing new node/edge types
+├── agent-protocol.md        # the verifiability contract for agent-produced outputs
+├── agentic-loop.md          # plans-as-issues + autoresearch over a Glimmer graph
+├── datalad-pattern.md       # DataLad as the I/O backbone (mrinit's pattern, generalized)
+├── interop.md               # cross-reading BIDS / NIDM / RO-Crate / JSON-LD / schema.org
+├── roadmap.md               # v0.3+ entity types (persona, concept, experiment, meta-analysis)
 └── faq.md
 ```
 
 ## Quick start
 
 ```bash
-# 1. Generate the worked example
-python glimmer/tools/build_rokb.py --example training-fsqc
+# Install dependencies
+pip install -r requirements.txt
+# FSL must be on PATH (or use the nipreps/fmriprep Docker container)
 
-# 2. Run the reference agent (requires LLM API access — see docs/agent-setup.md)
-python glimmer/tools/agent.py --rokb examples/training-fsqc/rokb/ --output verdicts.json
+# Run the canonical example end-to-end
+cd examples/ds000114-nipype
+bash install.sh                    # ~30 MB DataLad fetch (sub-01 T1w + dataset metadata)
+python workflow.py                 # runs BET + FAST, produces derivatives + provenance.json
+python emit_graph.py               # walks provenance + emits Glimmer sidecars under rokb/
 
-# 3. Score against the ground-truth ratings included in the example
-python glimmer/tools/score.py --verdicts verdicts.json --rokb examples/training-fsqc/rokb/
+# Validate the emitted graph
+python ../../glimmer/tools/validate.py rokb/
+
+# Verify the trace (re-runs each method from the graph's pinned SHAs + compares hashes)
+python verify.py
 ```
 
 ## Core principles
@@ -80,11 +96,14 @@ python glimmer/tools/score.py --verdicts verdicts.json --rokb examples/training-
 2. **Typed entities, not flat documents.** Different entity types invite different agent reasoning strategies.
 3. **Edges are first-class.** Every relationship a researcher would name out loud should be an edge in the graph.
 4. **Standards are nodes, not background.** BIDS spec versions, FreeSurfer releases, atlas versions are addressable, not implicit.
-5. **Provenance is intrinsic.** Every node carries a content hash; every edge carries a version.
+5. **Provenance is intrinsic.** Every node carries a content hash; every edge carries a version. Re-running a workflow from the graph's pinned SHAs is the verifiability test.
+6. **Source-first sanity check.** When a verification fails or a pipeline goes sideways, rebuilding the method from upstream source is often the recovery move. The schema makes this expressible (`source-checkout-url`, `source-build-instructions`) and the verifier can fall back to a source-rebuild rather than trusting a cached binary that may have drifted.
 
 ## Versioning policy
 
 Glimmer follows semantic versioning at the **schema** level. Core utility updates that don't change the schema are minor; schema changes that break existing sidecars are major. The current schema version is recorded in `glimmer/schema/glimmer-version`.
+
+v0.2 dropped `qc-artifact` and `rater` (over-indexed on QC as the canonical example) and added `finding` (EVI-aligned) between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative` rather than a separate node type.
 
 ## Citation
 

@@ -73,8 +73,9 @@ These fields are optional in v0.1.1 and recommended in v0.1.2. A Glimmer instanc
 │    - derives-from: → dataset-sub-01-T1w                     │
 │    - datalad-commit-sha: <pinned>                           │
 │                                                             │
-│  QC agent walks the graph + emits qc-artifact with          │
-│    reasoning-trace per the agent protocol                   │
+│  Verification agent walks the graph + re-runs methods,      │
+│    compares output-hashes, emits a verification `finding`   │
+│    with reasoning-trace per the agent protocol              │
 │                                                             │
 │  Synthesis agent walks the graph + emits draft publication  │
 │    citing the chain of evidence                             │
@@ -112,13 +113,21 @@ For v0.2 we will ship a Nipype-based worked example that demonstrates verifiabil
 
 3. **PyMVPA verifiable analysis.** [PyMVPA](http://www.pymvpa.org) for a cross-validated classification analysis on a subset of the dataset. The classifier output (accuracy, confusion matrix, permutation-test p-value) is a `derivative` node with `provenance-mode: deterministic`. The agent reasoning over this graph can verify the result by re-running the analysis at the cited commit SHA.
 
-4. **Agent verification.** A Glimmer agent walks the graph, reads the PyMVPA derivative node, and produces a `qc-artifact` of `artifact-kind: verification-check` (new in v0.2) attesting that the reported accuracy is consistent with the input data and the analysis spec. The verification's `reasoning-trace` includes:
+4. **Agent verification.** A Glimmer agent walks the graph, reads the PyMVPA derivative node, and produces a `finding` attesting that the reported accuracy is consistent with the input data and the analysis spec. The finding's `reasoning-trace` includes:
    - The Nipype workflow definition SHA
    - The input dataset commit SHA
    - The PyMVPA result file's git-annex key
    - A re-computation of a key summary statistic that the agent can independently verify
 
-This worked example lands in v0.2 and is the operational realization of the "verifiability of analysis" requirement.
+This worked example is the operational realization of the "verifiability of analysis" requirement.
+
+### DataLad is general-purpose, not neuro-specific
+
+DataLad's superdataset pattern is domain-general. The `mrinit` project happens to instantiate it for MRI data, but the same pattern (superdataset + per-stage sub-datasets + content-addressed storage) applies to any project structure that follows the research-harness pattern: raw inputs in one sub-dataset, code in another, derivatives in a third, with the superdataset coordinating their pinned commits. The Glimmer node types (`dataset`, `method`, `derivative`, `finding`) describe positions in this pattern, not MRI-specific concepts. A genomics pipeline running on DataLad, a climate-modeling run, or a particle-physics analysis with the same staged-substructure can adopt Glimmer unchanged.
+
+### Source-first sanity check
+
+A discipline borrowed from years of running multi-year neuroimaging projects: when a verification fails or a pipeline goes sideways, the recovery move is often to rebuild the method from upstream source rather than trust the cached binary. The Glimmer schema makes this expressible via optional `source-checkout-url` and `source-build-instructions` fields on `method` nodes; the verifier can fall back to a source rebuild when output-hash drift is detected. The schema doesn't enforce a source-rebuild on every verification (that would be prohibitively slow); it makes the fallback available when the cheap path fails.
 
 ## Nipype-to-Glimmer schema mapping
 
