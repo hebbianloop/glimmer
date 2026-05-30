@@ -133,10 +133,17 @@ def validate(rokb_path: Path, schema: dict):
     for nid in disk_only:
         errors.append(f"sidecar `{nid}` exists on disk but is not in index")
 
-    # 7. Hints (warnings)
+    # 7. Hints (warnings) + agent-protocol enforcement
     for node_id, (path, fm, _) in sidecar_by_id.items():
         node_type = fm.get("type")
         edges = fm.get("edges") or []
+        # Agent-protocol: findings/derivatives produced by an agent require reasoning-trace
+        if node_type in ("finding", "derivative") and fm.get("produced-by-agent") and not fm.get("reasoning-trace"):
+            errors.append(f"{path}: {node_type} has `produced-by-agent` but no `reasoning-trace` (agent protocol)")
+        # Findings must have based-on (the evidence chain)
+        if node_type == "finding":
+            if "based-on" not in fm or not fm.get("based-on"):
+                errors.append(f"{path}: finding node missing required `based-on` field (the evidence chain)")
         edge_types = {e.get("type") for e in edges if isinstance(e, dict)}
 
         if node_type == "qc-artifact" and "conforms-to" not in edge_types:

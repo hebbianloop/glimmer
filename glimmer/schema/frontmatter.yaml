@@ -1,4 +1,4 @@
-# Glimmer Schema v0.1.0 — Front-Matter Field Definitions
+# Glimmer Schema v0.2.0 — Front-Matter Field Definitions
 #
 # This file is the machine-readable contract for what fields each entity type
 # must, may, and may not have in its sidecar front-matter. Validators consume
@@ -11,20 +11,12 @@
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
 #
-# A field listed without a type-spec is free-form. Type specs use a small set
-# of tokens: string, int, datetime, sha256, [list-of-strings], <node-id>,
-# <enum:{a,b,c}>, edges-list (defined below).
-#
-# An edges-list is a sequence of mappings, each with:
-#   type:     (string) edge label, see below
-#   target:   (string) the target node id
-#   ... arbitrary additional metadata (version, parameters-hash, comment, ...)
-#
-# Edge type vocabulary is defined per-source-node-type via the `edges-allowed`
-# field on each type. A validator should reject any edge whose `type` is not
-# in the allowed list for that source's entity type.
+# v0.2 changes from v0.1: dropped `qc-artifact` and `rater` (over-indexed on QC
+# as the canonical example). Added `finding` between `derivative` and `publication`
+# per the EVI Evidence Graph Ontology. Agent identity is now a string field on
+# `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.1.0"
+schema-version: "0.2.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # common fields — every Glimmer node has these
@@ -32,7 +24,7 @@ schema-version: "0.1.0"
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,derivative,standard,qc-artifact,rater,publication}>
+    type:              <enum:{dataset,method,derivative,finding,standard,publication}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -53,120 +45,111 @@ dataset:
     modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
     acquisition-date:  datetime
     scanner:           string                   # e.g., "Siemens 3T TimTrio"
-    metrics:           map                      # tool-extracted QC metrics
-    bids-version:      string                   # e.g., "1.8.0"
+    metrics:           map                      # tool-extracted QC metrics (optional)
+    bids-version:      string                   # e.g., "1.11.1"
+    # DataLad coordinates — required for re-fetch guarantees
+    datalad-superdataset: string                # URL of the superdataset
+    datalad-relative-path: string               # path within the superdataset
+    datalad-commit-sha: string                  # pinned commit of the containing sub-dataset
+    datalad-annex-key: string                   # git-annex content hash, for single files
   edges-allowed:
-    - produced-by      # → method
-    - derives-from     # → dataset (parent)
+    - produced-by      # → method (acquisition method)
+    - derives-from     # → dataset (parent or source)
     - conforms-to      # → standard
-    - has-qc-artifact  # → qc-artifact
     - cited-in         # → publication
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
-# method — a named analysis or pipeline
+# method — a named analysis or pipeline (Nipype Workflow, Interface, Node)
 # ─────────────────────────────────────────────────────────────────────────────
 method:
   inherits: _common
   required:
-    tool:              string                   # e.g., "recon-all"
-    version:           string                   # e.g., "freesurfer-6.0.0"
+    tool:              string                   # e.g., "fsl.BET", "nipype-workflow"
+    version:           string                   # e.g., "fsl-6.0.5"
   optional:
     parameters:        map                      # invocation parameters
     parameters-hash:   sha256                   # hash over the parameter manifest
     container-image:   string                   # e.g., "nipreps/fmriprep:23.0.2"
     container-digest:  string                   # sha256 of the container image
+    workflow-definition-sha: string             # git SHA of the workflow source file
+    nipype-node-type:  <enum:{Interface,Node,MapNode,Workflow,JoinNode}>
   edges-allowed:
     - applies-to         # → dataset
     - produces           # → derivative
     - validates-against  # → publication
     - requires-standard  # → standard
-  body-required: true     # body should describe what the method does in plain language
+    - composes           # → method (sub-methods for workflows)
+  body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# derivative — output of applying a method to a dataset (first-class node)
+# derivative — output of applying a method to a dataset
 # ─────────────────────────────────────────────────────────────────────────────
 derivative:
   inherits: _common
   required:
     output-kind:       <enum:{volume,surface,timeseries,statistical-map,table,figure,other}>
+    provenance-mode:   <enum:{deterministic,agent-inferred,stochastic}>
   optional:
-    output-path:       string                   # relative path on disk if applicable
+    output-path:       string                   # relative path on disk
     output-format:     string                   # e.g., "nifti", "gifti", "csv"
+    output-hash:       sha256                   # hash of the output file(s) — load-bearing for verification
+    produced-by-agent: string                   # for agent-inferred outputs; the model id + version
+    # DataLad coordinates
+    datalad-relative-path: string
+    datalad-commit-sha: string
+    datalad-annex-key: string
   edges-allowed:
     - produced-by       # → method
-    - derives-from      # → dataset
-    - has-qc-artifact   # → qc-artifact
+    - derives-from      # → dataset or derivative
     - cited-in          # → publication
+    - supports-finding  # → finding
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
-# standard — a spec, atlas, template, rating scale
+# finding — interpreted assertion grounded in derivatives (between derivative
+# and publication). EVI-aligned: a finding has interpretation text + evidence
+# pointers + verifiable provenance. Multiple findings aggregate into a
+# publication.
+# ─────────────────────────────────────────────────────────────────────────────
+finding:
+  inherits: _common
+  required:
+    interpretation:    string                   # human-readable assertion ("subject's brain volume is X mm³")
+    based-on:          [list-of-node-ids]       # derivative or dataset nodes supporting the claim
+  optional:
+    confidence:        <enum:{high,medium,low}> # or numeric/CI
+    produced-by-agent: string                   # model id + version OR human persona name
+    reasoning-trace:                            # REQUIRED when produced by an agent
+      nodes-accessed:   [list-of-strings]
+      metrics-cited:    map                     # {metric-name: rationale}
+      evidence-summary: string
+      model-identifier: string
+      timestamp:        datetime
+    challenged-by:     [list-of-node-ids]       # findings or publications that contradict
+    supports:          [list-of-node-ids]       # findings or publications this reinforces
+  edges-allowed:
+    - based-on            # → derivative or dataset
+    - addresses-concept   # → concept (v0.3)
+    - cited-in            # → publication
+    - challenged-by       # → finding or publication
+    - supports            # → finding or publication
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# standard — a spec, atlas, template, protocol
 # ─────────────────────────────────────────────────────────────────────────────
 standard:
   inherits: _common
   required:
-    standard-class:    <enum:{spec,atlas,template,rating-scale,protocol,other}>
+    standard-class:    <enum:{spec,atlas,template,protocol,other}>
   optional:
-    version:           string                   # version of THIS standard
-    scale:             map                      # for rating-scale: ordinal → label map
-    categories:        [list-of-strings]        # for rating-scale: anatomical categories
-    upstream-url:      string                   # canonical authority for this standard
+    version:           string
+    upstream-url:      string
   edges-allowed:
     - defines           # → standard (sub-standards)
     - versions          # → standard (relates versions)
   body-required: true
-
-# ─────────────────────────────────────────────────────────────────────────────
-# qc-artifact — a QC pass/fail decision, manual edit, visual report, metric record
-#
-# VERIFIABILITY REQUIREMENT (v0.1+):
-#   When `qc-artifact.issued-by` points to a `rater` with role=agent, the
-#   sidecar MUST include a `reasoning-trace` field enumerating the graph nodes
-#   accessed, the metrics weighted, and the standard-anchor matched.
-#   This is a hard requirement, not a hint — see `docs/agent-protocol.md`.
-# ─────────────────────────────────────────────────────────────────────────────
-qc-artifact:
-  inherits: _common
-  required:
-    artifact-kind:     <enum:{ordinal-rating,binary-passfail,manual-edit,visual-report,metric-record}>
-  optional:
-    ratings:           map                      # for ordinal: {category: 0..5, ...}
-    decision:          <enum:{pass,fail,needs-review}>     # for binary
-    notes:             string
-    edit-summary:      string                   # for manual-edit
-    visual-report-uri: string                   # for visual-report
-  required-if-issued-by-agent:
-    reasoning-trace:
-      nodes-accessed:     [list-of-strings]     # list of node ids visited during traversal
-      metrics-weighted:   map                   # {metric-name: importance-weight-or-rationale}
-      standard-anchor:    string                # which rating-scale anchor matched the evidence
-      evidence-summary:   string                # one-paragraph free-text justification
-      model-identifier:   string                # the LLM/system that produced the verdict
-      timestamp:          datetime
-  edges-allowed:
-    - attests-to-quality-of   # → dataset OR derivative
-    - issued-by               # → rater
-    - conforms-to             # → standard (which rating scale)
-  body-required: false
-
-# ─────────────────────────────────────────────────────────────────────────────
-# rater — a human or AI who issued QC judgments
-# ─────────────────────────────────────────────────────────────────────────────
-rater:
-  inherits: _common
-  required:
-    role:              <enum:{human,agent}>
-  optional:
-    expertise:         <enum:{trainee,intermediate,senior,domain-expert}>
-    training-date:     datetime
-    affiliation:       string
-    orcid:             string                   # ORCID iD if human
-    model-identifier:  string                   # model name/version if agent
-  edges-allowed:
-    - issued           # → qc-artifact (one or many)
-    - trained-on       # → standard (which rating scale)
-  body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # publication — paper draft, abstract, preprint
@@ -176,17 +159,18 @@ publication:
   required:
     pub-status:        <enum:{draft,submitted,accepted,published,abstract,preprint}>
   optional:
-    venue:             string                   # journal / conference / preprint server
+    venue:             string
     doi:               string
     year:              int
-    title:             string                   # full title if different from `name`
-    authors:           [list-of-strings]        # author names; may also have author edges to persona nodes
+    title:             string
+    authors:           [list-of-strings]
   edges-allowed:
     - cites-dataset
     - cites-method
     - cites-derivative
-    - cites              # generic citation
-    - authored-by        # → rater or external author identifier
+    - cites-finding
+    - cites             # generic citation
+    - aggregates        # → finding (this paper aggregates these findings)
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,23 +179,24 @@ publication:
 _glimmer-index:
   filename: "_glimmer-index.json"
   required:
-    schema:            string                   # e.g., "glimmer/v0.1.0"
+    schema:            string                   # e.g., "glimmer/v0.2.0"
     dataset-name:      string
     node-count:        int
-    nodes:             [list-of-nodes]          # each node: {id, type, path}
+    nodes:             [list-of-nodes]
   optional:
     created:           datetime
     description:       string
-    upstream-graph:    string                   # if this graph is a sub-graph of a larger one
+    upstream-graph:    string
 
 # ─────────────────────────────────────────────────────────────────────────────
-# validator hints — non-binding suggestions
+# validator hints
 # ─────────────────────────────────────────────────────────────────────────────
 _validator-hints:
   warn-if:
-    - "qc-artifact node has no `conforms-to` edge to a standard"
-    - "dataset node has no `produced-by` edge"
-    - "rater node has issued QC artifacts but no `trained-on` edge"
+    - "dataset node has no `datalad-commit-sha`"
+    - "derivative node has no `output-hash`"
+    - "finding node has no `based-on` edge or empty list"
+    - "method node has no `version` field"
     - "publication node has no `cites-*` edges"
   error-if:
     - "node `id` is not kebab-case"
@@ -219,4 +204,4 @@ _validator-hints:
     - "edge target does not exist in the index"
     - "edge type is not in the allowed list for the source node's type"
     - "required field is missing"
-    - "field value does not match its type-spec"
+    - "finding produced-by-agent is set but reasoning-trace is missing"
