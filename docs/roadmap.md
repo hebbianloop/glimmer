@@ -12,9 +12,9 @@ Targeted improvements that lower adoption friction without changing the core sch
 - [ ] Cross-tool QC adapters: import MRIQC, fMRIPrep, QSIPrep reports as `qc-artifact` / `derivative` nodes.
 - [ ] `glimmer validate --include-bids` invokes the BIDS validator and merges results.
 
-## v0.3 — The Meta-Graph
+## v0.3 — The Meta-Graph + Experiments + Autoresearch
 
-This is the architectural extension you've been asking about: a Glimmer graph that scales beyond a single dataset to span a research project, a research program, or a literature corpus. It introduces three new node types and a small set of cross-cutting edges.
+The architectural extension that scales Glimmer beyond a single dataset to span research projects, research programs, literature corpora, and active autoresearch loops. Introduces five new node types and a set of cross-cutting edges.
 
 ### New entity types
 
@@ -23,6 +23,8 @@ This is the architectural extension you've been asking about: a Glimmer graph th
 | **`persona`** | A person (researcher, lab head, collaborator) or an organizational role. Supersedes `rater` for non-QC contexts. A `persona` can `author` publications, `lead` concepts, `contribute-to` datasets, `mentor` other personas. |
 | **`concept`** | An abstract research theme, hypothesis, or open question. Concepts contain datasets and produce publications. They are the unit at which research programs operate — what a grant funds, what a thesis defends, what a meta-analysis examines. |
 | **`organization`** | An institution, lab, consortium, journal, funding body, or other organizational entity. Personas have affiliations; concepts may have institutional homes; publications have venues. |
+| **`experiment`** | A behavioral or imaging experimental paradigm shipped as a reproducible artifact — typically an [Experiment Factory](https://expfactory.org) container, a jsPsych task, or a PsychoPy script. The experiment node carries its container digest, its dependencies on `method` nodes, and produces `dataset` nodes when it is run. |
+| **`meta-analysis`** | A specialized `publication` subtype that aggregates findings across multiple primary `publication` nodes. Has `meta-analyzes` edges to each primary work, and `addresses-concept` edges to the concepts it tests. |
 
 ### Cross-cutting edges (v0.3)
 
@@ -30,9 +32,23 @@ This is the architectural extension you've been asking about: a Glimmer graph th
 - `affiliated-with`: `persona → organization`
 - `funded-by`: `concept → organization`
 - `extends-concept`: `concept → concept` (theory inheritance / specialization)
-- `meta-analyzes`: `publication → publication` (a meta-analysis citing primary works)
+- `meta-analyzes`: `meta-analysis → publication` (citation with meta-analysis intent)
 - `competes-with`: `concept → concept` (rival hypotheses)
 - `subsumed-by`: `concept → concept` (one concept becomes a special case of another over time)
+- `tests-hypothesis`: `experiment → concept` (the experiment is designed to test this concept)
+- `produces-data-for`: `experiment → dataset` (the experiment's outputs)
+- `requires-experiment`: `dataset → experiment` (inverse, populated at index time)
+- `addresses-concept`: `publication → concept` (the publication's claim is about this concept)
+
+### Why `experiment` is its own type, not a sub-`method`
+
+A `method` is an analysis applied to existing data; an `experiment` is the protocol that produces the data in the first place. The distinction matters because:
+
+- Experiments are reproducible artifacts in their own right (a container is shippable; an analysis tool is a dependency of an experiment).
+- Experiments have human-subjects considerations (IRB approval, consent forms) that methods don't.
+- Experiments produce both behavioral data (TSV files, response logs) and trigger imaging data (DICOM streams), so they bridge between modalities.
+
+The canonical example: Experiment Factory ships [hundreds of validated behavioral tasks](https://expfactory.org/experiments/library) as Docker containers. A Glimmer project that uses one of these references it as an `experiment` node whose container-digest pins the exact version run.
 
 ### Why this matters
 
@@ -72,7 +88,18 @@ examples/research-program-ads/
 
 A meta-analysis traverses the graph: start at a concept, walk `authored-by` to personas, walk to other publications by those personas, walk back to other concepts via `extends-concept` or `subsumed-by`, and accumulate the graph of related work.
 
-## v0.4 — Agent SDK
+## v0.4 — Autodetection + Multi-Standard Support
+
+The high-level "drop any data, Glimmer figures it out" capability you've been reaching for. v0.4 adds:
+
+- **`glimmer discover <path>`** — walk a directory, classify the data, propose the right standard overlay.
+- **Standards beyond BIDS:** GA4GH (genomics), MIAME / MINSEQE (microarray / sequencing), CIF (crystallography), Frictionless Data (tabular), DataCite (publication-level), domain-agnostic JSON-LD via schema.org.
+- **Auto-overlay generation:** once the data type is classified, Glimmer emits the appropriate sidecars (BIDS JSON for neuroimaging, Frictionless `datapackage.json` for tabular, etc.) plus the cross-standard Glimmer index.
+- **Conflict resolution:** when a dataset partly conforms to multiple standards (a BIDS dataset with embedded genomic side-data), Glimmer's index records which standard governs which subtree; per-subtree validation runs independently.
+
+This is what mrinit was reaching for but didn't reach. At v0.4 it lands as a first-class capability.
+
+## v0.5 — Agent SDK
 
 At this point the reference agent (`glimmer/tools/agent.py`) has been the minimal QC agent. v0.4 promotes the agent's primitives into a reusable SDK:
 
@@ -80,7 +107,7 @@ At this point the reference agent (`glimmer/tools/agent.py`) has been the minima
 - `glimmer.agent.Reasoning` — base class for project-specific agents (fMRI QC, DWI QC, behavior coding, meta-analysis summarization). Authors of project agents subclass this and only fill in `render_*`.
 - `glimmer.agent.Trajectory` — explicit trace object that records every node read and every edge walked, so verdicts are auditable in a structured way.
 
-## v0.5 — Federation and shared schemas
+## v0.6 — Federation and shared schemas
 
 When two research groups maintain Glimmer projects on the same dataset (e.g., ADS+CLAD shared by Georgetown CFMI and the Fishbein cohort at Penn State), they should be able to publish their schemas, agents, and inter-rater κ baselines as a shared registry. v0.5 specifies:
 

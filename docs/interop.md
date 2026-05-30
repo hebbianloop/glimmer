@@ -15,48 +15,59 @@
 | **[ProvONE](https://purl.dataone.org/provone-v1-dev)** / **PROV-O** | Provenance semantics | Glimmer's edge types (`produced-by`, `derives-from`) map to PROV-O predicates (`prov:wasGeneratedBy`, `prov:wasDerivedFrom`). |
 | **[FAIR principles](https://www.go-fair.org/fair-principles/)** | Findability, Accessibility, Interoperability, Reusability | Glimmer is FAIR-by-construction: every node has a stable identifier, the graph is machine-readable, edges encode provenance, and the schema is open. |
 
-## Cross-reading BIDS sidecars
+## BIDS spec version and sidecar format
 
-A BIDS-conformant project contains JSON sidecars per scan (e.g., `sub-01/anat/sub-01_T1w.json`). To make these legible as Glimmer nodes, two paths exist:
+> **Current state (verified 2026-05-30):** BIDS v1.11.1 (released 2026-02-19). Actual dataset sidecars are **JSON**. The spec source is written in YAML, but that's an artifact of how the spec maintainers author the standard — it doesn't change what tools consume in real datasets.
 
-1. **In-place augmentation.** Add a `_x-glimmer` block to the existing BIDS sidecar:
+## Cross-reading BIDS sidecars — the canonical Glimmer strategy
+
+Glimmer takes a **two-tier representation, single graph** approach. The rules:
+
+1. **BIDS-typed entities use BIDS-native JSON sidecars, extended in-place with `_x-glimmer`.** Existing tools (the BIDS validator, fMRIPrep, MRIQC, qsiprep, mriqc-learn) continue to operate normally. The Glimmer index reads the `_x-glimmer` block to treat the JSON sidecar as a graph node.
+
    ```json
    {
      "RepetitionTime": 2.4,
      "EchoTime": 0.003,
+     "FlipAngle": 8,
      "_x-glimmer": {
        "id": "sub-01-T1w",
        "type": "dataset",
+       "modality": "anat-T1w",
        "edges": [
          {"type": "produced-by", "target": "method-recon-all-fs6"},
-         {"type": "conforms-to", "target": "bids-spec-1.8.0"}
+         {"type": "conforms-to", "target": "bids-spec-1.11.1"}
        ]
      }
    }
    ```
-   Tools that don't understand the `_x-glimmer` block ignore it; tools that do understand it index it as a Glimmer node.
 
-2. **Companion Markdown sidecar.** Place a `sub-01_T1w.glimmer.md` alongside the BIDS sidecar:
-   ```yaml
-   ---
-   id: sub-01-T1w
-   type: dataset
-   bids-sidecar: sub-01_T1w.json
-   edges: ...
-   ---
-   ```
-   The companion sidecar references the BIDS JSON via its `bids-sidecar` field. Useful when the BIDS sidecar is owned by a tool you do not control.
+2. **Glimmer-only entities (rater, standard, qc-artifact, publication, method, derivative, concept, persona) live in YAML-front-matter Markdown.** These have no BIDS counterpart. The Markdown body holds free-text agent-readable description; the YAML front-matter holds the structured fields.
+
+3. **The `_glimmer-index.json` at the dataset root enumerates BOTH** — JSON sidecars with `_x-glimmer` blocks AND standalone YAML-front-matter Markdown sidecars.
+
+This is the single architectural decision: **don't fragment the graph across two formats**. The format follows the artifact type. BIDS-typed data uses BIDS JSON; Glimmer-typed metadata uses YAML+MD. The graph spans both.
+
+### Why not "everything in YAML" or "everything in JSON"
+
+We considered both. YAML-everywhere breaks compatibility with the BIDS tool ecosystem (the validator expects JSON; fMRIPrep writes JSON outputs). JSON-everywhere makes the body of standalone entities (long methodological descriptions, multi-paragraph standard definitions) ugly to maintain and inflexible to render. Two-tier is the pragmatic shape.
 
 ## Validating across both layers
 
 The Glimmer validator (`glimmer validate <path>`) checks the Glimmer graph for internal consistency. To also validate BIDS conformance, run them in sequence:
 
 ```bash
-bids-validator <path>                # BIDS spec conformance
+bids-validator <path>                # BIDS spec conformance (https://bids-validator.readthedocs.io/)
 glimmer validate <path>              # Glimmer graph conformance
 ```
 
-The two validators are independent by design. A future `glimmer validate --include-bids` flag (v0.2) will invoke the BIDS validator as a subprocess and merge the results.
+The two validators are independent by design. The unified-output flag `glimmer validate --include-bids` (v0.2) will invoke the BIDS validator as a subprocess and merge the results. The merged report distinguishes:
+
+- **BIDS errors** — file layout, required fields, valid values per the BIDS spec.
+- **Glimmer errors** — index consistency, edge integrity, schema conformance.
+- **Cross-layer warnings** — e.g., a BIDS sidecar has an `_x-glimmer` block whose `type` doesn't match the BIDS file's expected modality.
+
+This is the model: **BIDS catches "your files are wrong"; Glimmer catches "your project's structure is wrong"; cross-layer catches "your structure and your files disagree."**
 
 ## Importing an existing BIDS dataset
 

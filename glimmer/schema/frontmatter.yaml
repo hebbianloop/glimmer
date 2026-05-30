@@ -119,6 +119,12 @@ standard:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # qc-artifact — a QC pass/fail decision, manual edit, visual report, metric record
+#
+# VERIFIABILITY REQUIREMENT (v0.1+):
+#   When `qc-artifact.issued-by` points to a `rater` with role=agent, the
+#   sidecar MUST include a `reasoning-trace` field enumerating the graph nodes
+#   accessed, the metrics weighted, and the standard-anchor matched.
+#   This is a hard requirement, not a hint — see `docs/agent-protocol.md`.
 # ─────────────────────────────────────────────────────────────────────────────
 qc-artifact:
   inherits: _common
@@ -130,6 +136,14 @@ qc-artifact:
     notes:             string
     edit-summary:      string                   # for manual-edit
     visual-report-uri: string                   # for visual-report
+  required-if-issued-by-agent:
+    reasoning-trace:
+      nodes-accessed:     [list-of-strings]     # list of node ids visited during traversal
+      metrics-weighted:   map                   # {metric-name: importance-weight-or-rationale}
+      standard-anchor:    string                # which rating-scale anchor matched the evidence
+      evidence-summary:   string                # one-paragraph free-text justification
+      model-identifier:   string                # the LLM/system that produced the verdict
+      timestamp:          datetime
   edges-allowed:
     - attests-to-quality-of   # → dataset OR derivative
     - issued-by               # → rater
