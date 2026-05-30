@@ -10,3 +10,4 @@ examples/*/verdicts*.json
 
 # OS junk
 .DS_Store
+examples/*/rokb-staging/

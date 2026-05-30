@@ -17,7 +17,9 @@ import sys, os, json, re, argparse, yaml
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).parent.parent / "schema" / "frontmatter.yaml"
-NAME_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")  # kebab-case
+# IDs are kebab-style but allow uppercase letters and dots — needed for BIDS-canonical
+# tokens like `T1w`, `T2w`, version strings like `1.11.1`, and similar domain conventions.
+NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
 
 
 def load_schema():

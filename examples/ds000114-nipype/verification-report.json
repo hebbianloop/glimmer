@@ -1,0 +1,33 @@
+{
+  "total": 4,
+  "verified": 4,
+  "mismatch": 0,
+  "missing": 0,
+  "verifiability-rate-pct": 100.0,
+  "per-derivative": [
+    {
+      "id": "derivative-sub-01-T1w-brain",
+      "status": "verified",
+      "recorded-hash": "09d7e983bc271d37e2e357287b144462de858464f1f30bf28fe7f7969e72b2c6",
+      "observed-hash": "09d7e983bc271d37e2e357287b144462de858464f1f30bf28fe7f7969e72b2c6"
+    },
+    {
+      "id": "derivative-sub-01-fast-pve-0",
+      "status": "verified",
+      "recorded-hash": "c0e88391b43114029c7c673055a00c24accfae02f69f7727fd22eaaeef9fcd87",
+      "observed-hash": "c0e88391b43114029c7c673055a00c24accfae02f69f7727fd22eaaeef9fcd87"
+    },
+    {
+      "id": "derivative-sub-01-fast-pve-1",
+      "status": "verified",
+      "recorded-hash": "8c69ee618e6dd067fec398194ce30f16e28126f4b22055b65e5b8a42687f753f",
+      "observed-hash": "8c69ee618e6dd067fec398194ce30f16e28126f4b22055b65e5b8a42687f753f"
+    },
+    {
+      "id": "derivative-sub-01-fast-pve-2",
+      "status": "verified",
+      "recorded-hash": "9a9b842aa2fdfab04e8bcb38d23bfe1e884cf157144f7e948504c333a6d7b1e5",
+      "observed-hash": "9a9b842aa2fdfab04e8bcb38d23bfe1e884cf157144f7e948504c333a6d7b1e5"
+    }
+  ]
+}
