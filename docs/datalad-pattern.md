@@ -1,6 +1,8 @@
 # DataLad as the Glimmer I/O Backbone
 
 > Glimmer is a graph layer above the file tree. **DataLad is how the file tree gets written, versioned, and distributed.** This document specifies how the two compose, drawing directly from the [`hebbianloop/mrinit`](https://github.com/hebbianloop/mrinit) reproducible-MRI project that pioneered the pattern in 2020.
+>
+> **Choosing *where* the annex lives** (which cloud / NAS / object store) is a separate, provider-agnostic decision — see [`data-hosting.md`](data-hosting.md).
 
 ## The mrinit / DataLad superdataset pattern
 
