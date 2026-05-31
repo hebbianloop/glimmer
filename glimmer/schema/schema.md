@@ -1,15 +1,15 @@
-# Glimmer Schema (v0.2)
+# Glimmer Schema (v0.3)
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
 
-v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
+v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node) and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
 
 ## Common front-matter (all node types)
 
 ```yaml
 ---
 id: <kebab-case-slug>            # MUST be unique within the dataset
-type: <one of: dataset|method|derivative|finding|standard|publication>
+type: <one of: dataset|method|experiment|derivative|finding|standard|publication>
 name: <human-readable name>
 created: <ISO8601>
 modified: <ISO8601>
@@ -42,6 +42,25 @@ datalad-superdataset: "https://github.com/OpenNeuroDatasets/ds000114"
 datalad-relative-path: "sub-01/anat/sub-01_ses-test_T1w.nii.gz"
 datalad-commit-sha: "abc123..."
 datalad-annex-key: "MD5E-s12345--..."
+```
+
+### `experiment`
+A task or acquisition **paradigm** — the experimental design under which data is acquired — as a first-class node. Distinct from `standard` because a paradigm is an *active design* (conditions, timing, regressors), not a static spec. E.g. an event-related emotional-film design, a reward task, or resting-state.
+
+Canonical edges:
+- `realized-by` → `dataset` node (the data acquired under this paradigm)
+- `analyzed-by` → `method` node
+- `conforms-to` → `standard` node
+- `cited-in` → `publication` node
+
+Example sidecar fields:
+```yaml
+task-name: emoFilm
+design: naturalistic
+conditions: [REST, NEU, POS, NEG]
+regressors: ["salience-SRF ⊗ HRF"]
+timing-source: "code/emofilm-timing"
+stimulus-set: "stimuli/emofilm/*.avi"
 ```
 
 ### `method`
@@ -109,6 +128,21 @@ Canonical edges:
 - `cites-derivative` → `derivative`
 - `cites-finding` → `finding`
 - `aggregates` → `finding` (this paper aggregates these findings into its argument)
+
+## Cross-cutting edges (`_universal-edges`)
+
+Some edges are allowed from **any** node type; the validator unions these in regardless of the source node's `edges-allowed`.
+
+### `contributed-by`
+Attribution **as an edge**: who (or what) contributed to this node, and in what role. The target is an **out-of-graph contributor identifier** (ORCID URI preferred, else email or a kebab id) — like `publication.authors`, contributors are referenced by stable id, not required to be graph nodes. Role + identity ride as edge metadata:
+
+```yaml
+edges:
+  - {type: contributed-by, target: "0000-0002-1825-0097", role: pi,       name: "Ashley VanMeter"}
+  - {type: contributed-by, target: "se394@georgetown.edu", role: analyzed, name: "Shady El Damaty"}
+```
+
+Suggested roles: `pi`, `scanned`, `qc`, `coded`, `analyzed`, `drafted`, `funded`. The **who-did-what attribution layer** is derived by aggregating `contributed-by` edges across the whole graph (group by target). Because the target is out-of-graph, the validator does not require it to appear in the index.
 
 ## Index file (`_glimmer-index.json`)
 
