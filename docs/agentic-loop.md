@@ -21,7 +21,7 @@
                                │ author writes the idea down
                                ▼
                   ┌────────────────────────────┐
-                  │  concept node (v0.3)       │
+                  │  concept node              │
                   │  + issue tracking the work │
                   └─────────────┬──────────────┘
                                 │ decompose
@@ -150,14 +150,17 @@ Systems like OpenScholar, FutureHouse, AutoML, and the AI Scientist series (Saka
 - The graph survives independently of any specific autoresearch system.
 - Multiple autoresearch systems can co-operate on the same graph.
 
-## What this requires from v0.3+
+## Schema support
 
-The agentic loop requires schema additions over the current v0.1:
+Shipped in v0.3 (this loop now runs against the released schema):
 
-- `concept` node type (v0.3 roadmap)
-- `persona` node type (v0.3 roadmap)
-- `experiment` node type (v0.3 roadmap) — for Experiment Factory containers
-- Cross-cutting edges: `authored-by`, `extends-concept`, `tests-hypothesis` (v0.3)
-- Optional: cryptographic signing of agent outputs (v0.5 — federated identity)
+- `concept` node type — the research-question / hypothesis layer the loop decomposes and findings address.
+- `experiment` node type — for task/acquisition paradigms (Experiment Factory containers, jsPsych/PsychoPy tasks).
+- Cross-cutting edges: `addresses-concept` (finding/publication → concept), `tests-hypothesis` (experiment → concept), `extends-concept` / `subsumed-by` / `competes-with` / `superseded-by` (concept → concept), and the universal `contributed-by` attribution edge.
 
-This document specifies the operational pattern; the schema additions to fully support it land in v0.3.
+Still on the roadmap:
+
+- `persona` and `organization` node types + `authored-by` / `affiliated-with` / `funded-by` edges (v0.3+ meta-graph).
+- Optional: cryptographic signing of agent outputs (v0.5 — federated identity).
+
+This document specifies the operational pattern; the concept/experiment substrate it relies on is live as of v0.3.

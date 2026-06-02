@@ -15,7 +15,7 @@ The cost is query performance: traversing a 10,000-node Glimmer graph requires l
 
 Typing forces explicit decisions about what each artifact IS. A `dataset` and a `derivative` have different lifecycles: the former is acquired, the latter is computed. A `method` and a `standard` look similar (both reference external definitions) but obey different reasoning rules (a method node has parameters that can vary per-invocation; a standard node is immutable per-version). Typing makes these distinctions actionable for an agent.
 
-We resisted the temptation to add more types. Six entity types (v0.2) is a deliberate ceiling. If a candidate new artifact looks like one of the existing six, it should subclass via convention in the body rather than become a new top-level type.
+We resist type proliferation. The eight v0.3 entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`) are added only when an artifact has a genuinely distinct lifecycle or reasoning rule — `experiment` (an active paradigm, unlike a static `standard`) and `concept` (the research-question layer a program operates at) each cleared that bar. If a candidate new artifact looks like one of the existing eight, it should subclass via convention in the body rather than become a new top-level type.
 
 ## Why "edges are properties on source nodes" rather than separate edge nodes
 

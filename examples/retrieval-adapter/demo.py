@@ -56,6 +56,18 @@ PUBS = [
 
 QUERY = "amygdala emotional film predicts violence outcome"
 
+# The research question the literature scout is gathering evidence for. In the
+# agentic loop (docs/agentic-loop.md) the author writes this concept down first;
+# the retrieval-emitted finding then points back at it via `addresses-concept`.
+CONCEPT = {
+    "id": "concept-emofilm-violence-outcome",
+    "statement": "Naturalistic emotional-film fMRI in adolescence prospectively "
+    "predicts violence outcomes in emerging adulthood.",
+    "concept-kind": "hypothesis",
+    "status": "under-investigation",
+    "falsifiable": True,
+}
+
 
 def hash_body(s: str) -> str:
     return "sha256:" + hashlib.sha256(s.encode()).hexdigest()[:16]
@@ -71,7 +83,22 @@ def write_node(rel_path: str, frontmatter: dict, body: str = "") -> None:
 def main() -> None:
     (ROKB / "publications").mkdir(parents=True, exist_ok=True)
     (ROKB / "findings").mkdir(parents=True, exist_ok=True)
+    (ROKB / "concepts").mkdir(parents=True, exist_ok=True)
     index_nodes = []
+
+    # the research question, written down first
+    write_node(
+        f"concepts/{CONCEPT['id']}.md",
+        {
+            "id": CONCEPT["id"], "type": "concept", "name": "EmoFilm → violence outcome",
+            "created": NOW, "modified": NOW, "statement": CONCEPT["statement"],
+            "concept-kind": CONCEPT["concept-kind"], "status": CONCEPT["status"],
+            "falsifiable": CONCEPT["falsifiable"], "edges": [],
+        },
+        CONCEPT["statement"],
+    )
+    index_nodes.append({"id": CONCEPT["id"], "type": "concept",
+                        "path": f"concepts/{CONCEPT['id']}.md"})
 
     for pub in PUBS:
         write_node(
@@ -100,6 +127,7 @@ def main() -> None:
         result=result,
         model_identifier="anthropic/claude-opus-4",
         timestamp=NOW,
+        concept_id=CONCEPT["id"],  # links the finding to the research question
     )
     write_node("findings/finding-h1-prior-lit.md",
                {**finding, "name": "H1 prior-literature finding", "created": NOW, "modified": NOW})

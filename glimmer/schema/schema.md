@@ -2,14 +2,14 @@
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
 
-v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node) and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
+v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node), `concept` (a research question / hypothesis as a first-class node, the unit a research program operates at), and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
 
 ## Common front-matter (all node types)
 
 ```yaml
 ---
 id: <kebab-case-slug>            # MUST be unique within the dataset
-type: <one of: dataset|method|experiment|derivative|finding|standard|publication>
+type: <one of: dataset|method|experiment|derivative|finding|concept|standard|publication>
 name: <human-readable name>
 created: <ISO8601>
 modified: <ISO8601>
@@ -50,6 +50,7 @@ A task or acquisition **paradigm** — the experimental design under which data 
 Canonical edges:
 - `realized-by` → `dataset` node (the data acquired under this paradigm)
 - `analyzed-by` → `method` node
+- `tests-hypothesis` → `concept` node (the paradigm is designed to test this hypothesis)
 - `conforms-to` → `standard` node
 - `cited-in` → `publication` node
 
@@ -104,13 +105,36 @@ Canonical edges:
 - `cited-in` → `publication`
 - `challenged-by` → `finding` or `publication` (contradictory evidence)
 - `supports` → `finding` or `publication` (reinforcing evidence)
-- `addresses-concept` → `concept` node (v0.3)
+- `addresses-concept` → `concept` node
 
 Required fields:
 - `interpretation` — human-readable assertion ("Subject sub-01 T1w brain volume = 1,234,567 mm³")
 - `based-on` — list of derivative or dataset node IDs
 
 When `produced-by-agent` is set (an LLM emitted this finding rather than a deterministic computation), the `reasoning-trace` field becomes required. See `docs/agent-protocol.md` for the full verifiability contract.
+
+### `concept`
+A research question, hypothesis, or theme as a first-class node — the unit a research **program** operates at (what a grant funds, what a thesis defends, what a meta-analysis examines). Findings and publications point *up* at a concept via `addresses-concept`; the agentic loop decomposes a question *down* into sub-hypotheses via `decomposes-into`. See [`docs/agentic-loop.md`](../../docs/agentic-loop.md).
+
+Canonical edges:
+- `decomposes-into` → `concept` (a question decomposed into sub-hypotheses)
+- `extends-concept` → `concept` (specialization / theory inheritance)
+- `subsumed-by` → `concept` (becomes a special case of a broader concept)
+- `competes-with` → `concept` (rival hypothesis)
+- `superseded-by` → `concept` (a refined replacement supersedes this one)
+- `supports` / `contradicts` → `finding`, `publication`, or `concept`
+- `cited-in` → `publication`
+
+Required fields:
+- `statement` — the question / hypothesis / theme as a sentence
+
+Example sidecar fields:
+```yaml
+statement: "Naturalistic emotional-film fMRI in adolescence predicts violence outcomes in emerging adulthood."
+concept-kind: hypothesis
+status: under-investigation
+falsifiable: true
+```
 
 ### `standard`
 A spec, atlas, template, or protocol. Nodes themselves, not just background metadata, so constraints can be expressed as edges and an agent can read the standard's definition directly.
@@ -128,6 +152,7 @@ Canonical edges:
 - `cites-derivative` → `derivative`
 - `cites-finding` → `finding`
 - `aggregates` → `finding` (this paper aggregates these findings into its argument)
+- `addresses-concept` → `concept` (the publication's claim is about this concept)
 
 ## Cross-cutting edges (`_universal-edges`)
 
@@ -150,7 +175,7 @@ At the dataset root. Lists every node ID + its file path. Mandatory load for the
 
 ```json
 {
-  "schema": "glimmer/v0.2.0",
+  "schema": "glimmer/v0.3.0",
   "dataset-name": "ds000114-nipype-demo",
   "nodes": [
     {"id": "dataset-sub-01-T1w", "type": "dataset", "path": "datasets/sub-01-T1w.md"},

@@ -38,10 +38,10 @@ class LiteratureRetriever(Protocol):
 | `provenance-mode` | `stochastic` — retrieval is non-deterministic by construction; never faked as `deterministic`. |
 | `nodes-accessed` | The distinct `source_node_id`s the passages came from — all real, all in the graph. |
 | `metrics-cited` | The per-source retriever scores, explicitly noted as non-load-bearing across retrievers. |
-| `based-on` edges | One per distinct source node; plus an optional `addresses-concept` edge (v0.3) closing the loop to the hypothesis. |
+| `based-on` edges | One per distinct source node; plus an optional `addresses-concept` edge closing the loop to the hypothesis (the `concept` node type, shipped in v0.3). |
 | Reproducibility | The `retriever-manifest` is embedded, so a same-config re-run is *reproducible-modulo-index* — the honest analogue of SHA re-execution for the stochastic regime. |
 
-No schema change is required: `finding` already supports `provenance-mode: stochastic`, `reasoning-trace`, and `based-on`. Only `addresses-concept` is v0.3-gated, and it is optional here.
+No schema change is required: `finding` supports `provenance-mode: stochastic`, `reasoning-trace`, and `based-on`, and `addresses-concept` resolves to a `concept` node (shipped in v0.3) when a `concept_id` is supplied.
 
 ## Where it slots into the agentic loop
 

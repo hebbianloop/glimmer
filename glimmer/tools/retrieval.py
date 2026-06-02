@@ -86,16 +86,17 @@ def finding_from_retrieval(
 
     The `retriever_manifest` is embedded so a re-run with the same config is
     "reproducible-modulo-index" — the honest analogue of SHA re-execution for the
-    stochastic regime. The result satisfies docs/agent-protocol.md without any
-    schema change: `finding` already supports `provenance-mode: stochastic`,
-    `reasoning-trace`, and `based-on` today (`addresses-concept` is v0.3, optional).
+    stochastic regime. The result satisfies docs/agent-protocol.md: `finding`
+    supports `provenance-mode: stochastic`, `reasoning-trace`, and `based-on`.
+    When a `concept_id` is given, an `addresses-concept` edge links the finding to
+    the research question it bears on (the `concept` node type shipped in v0.3).
     """
     sources = sorted({p.source_node_id for p in result.passages})
     edges = [{"type": "based-on", "target": s} for s in sources]
     # `based-on` and `reasoning-trace.nodes-accessed` are the same list of IDs but
     # MUST be distinct objects, else yaml.dump emits an anchor/alias (&id/*id) that
     # is valid YAML yet inconsistent with every other sidecar in the repo.
-    if concept_id:  # closes the loop back to the research question (v0.3 edge)
+    if concept_id:  # closes the loop back to the research question (concept node)
         edges.append({"type": "addresses-concept", "target": concept_id})
 
     return {
