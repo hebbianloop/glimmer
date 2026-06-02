@@ -178,3 +178,25 @@ When a `finding` or `derivative` has `produced-by-agent` set (i.e., an LLM or au
 - `timestamp`: when the output was issued
 
 This is a hard schema requirement, not a hint. See `docs/agent-protocol.md`.
+
+## Research-program / scientometric layer (v0.3)
+
+Node types for the autoresearch meta-graph — people, organizations, concepts,
+and hypothesis-level experiments — distinct from the imaging data layer.
+
+### `concept`
+A research concept / hypothesis under study. Edges: `authored-by` → persona,
+`funded-by` → organization, `tested-by-experiment` → experiment. Optional
+`outcome-data` / `outcome-access` / `sensitivity` for gated outcome variables.
+
+### `persona`
+A contributor (researcher, mentor, PI). Edges: `affiliated-with` → organization,
+`leads` → organization/experiment, `mentors` → persona.
+
+### `organization`
+A lab, institution, or funder. Edge: `part-of` → organization.
+
+Also in v0.3: `experiment.task-name` is now optional (the research-program layer
+uses `experiment` for hypothesis-level designs with no single task file, adding
+`depends-on-method` / `tests-hypothesis` edges); `publication` may carry
+`addresses-concept` / `authored-by` edges (scout-emitted literature).

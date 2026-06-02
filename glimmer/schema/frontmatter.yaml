@@ -25,7 +25,7 @@ schema-version: "0.3.0"
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -152,9 +152,11 @@ finding:
 # ─────────────────────────────────────────────────────────────────────────────
 experiment:
   inherits: _common
-  required:
-    task-name:         string                   # e.g., "emoFilm", "wof", "rest"
   optional:
+    # task-name is the imaging/task-paradigm sense; OPTIONAL because the
+    # research-program layer also uses `experiment` for hypothesis-level study
+    # designs that have no single task file.
+    task-name:         string                   # e.g., "emoFilm", "wof", "rest"
     design:            <enum:{event-related,block,resting-state,naturalistic,mixed}>
     conditions:        [list-of-strings]         # e.g., [REST, NEU, POS, NEG]
     regressors:        [list-of-strings]         # modeled regressors (e.g., salience-SRF convolved w/ HRF)
@@ -167,6 +169,8 @@ experiment:
     - analyzed-by        # → method
     - conforms-to        # → standard
     - cited-in           # → publication
+    - depends-on-method  # → method (research-program layer)
+    - tests-hypothesis   # → concept (research-program layer)
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,6 +208,40 @@ publication:
     - cites-finding
     - cites             # generic citation
     - aggregates        # → finding (this paper aggregates these findings)
+    - addresses-concept # → concept (scout-emitted lit addressing a concept)
+    - authored-by       # → persona
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# research-program / scientometric layer (v0.3) — people, organizations, and
+# concepts the autoresearch meta-graph emits, distinct from the imaging data
+# layer above. Minimal fields (the _common set); the value is in the edges that
+# connect literature + hypotheses + contributors + funders.
+# ─────────────────────────────────────────────────────────────────────────────
+concept:
+  inherits: _common
+  optional:
+    outcome-data:      string                   # ref to a gated outcome variable, if any
+    outcome-access:    string                   # access status of that outcome data
+    sensitivity:       string                   # data-sensitivity classification
+  edges-allowed:
+    - authored-by          # → persona
+    - funded-by            # → organization
+    - tested-by-experiment # → experiment
+  body-required: false
+
+persona:
+  inherits: _common
+  edges-allowed:
+    - affiliated-with   # → organization
+    - leads             # → organization or experiment
+    - mentors           # → persona
+  body-required: false
+
+organization:
+  inherits: _common
+  edges-allowed:
+    - part-of           # → organization
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
