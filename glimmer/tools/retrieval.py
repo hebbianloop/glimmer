@@ -92,6 +92,9 @@ def finding_from_retrieval(
     """
     sources = sorted({p.source_node_id for p in result.passages})
     edges = [{"type": "based-on", "target": s} for s in sources]
+    # `based-on` and `reasoning-trace.nodes-accessed` are the same list of IDs but
+    # MUST be distinct objects, else yaml.dump emits an anchor/alias (&id/*id) that
+    # is valid YAML yet inconsistent with every other sidecar in the repo.
     if concept_id:  # closes the loop back to the research question (v0.3 edge)
         edges.append({"type": "addresses-concept", "target": concept_id})
 
@@ -99,12 +102,12 @@ def finding_from_retrieval(
         "id": finding_id,
         "type": "finding",
         "interpretation": interpretation,
-        "based-on": sources,
+        "based-on": list(sources),
         "produced-by-agent": model_identifier,
         "provenance-mode": "stochastic",
         "confidence": confidence,
         "reasoning-trace": {
-            "nodes-accessed": sources,
+            "nodes-accessed": list(sources),
             "metrics-cited": {
                 "retrieval-scores": {
                     p.source_node_id: round(p.score, 4) for p in result.passages
