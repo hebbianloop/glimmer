@@ -11,12 +11,13 @@
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
 #
+# v0.3: added `experiment` (task/acquisition paradigm) + `contributed-by` universal edge.
 # v0.2 changes from v0.1: dropped `qc-artifact` and `rater` (over-indexed on QC
 # as the canonical example). Added `finding` between `derivative` and `publication`
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.2.0"
+schema-version: "0.3.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # common fields — every Glimmer node has these
@@ -24,7 +25,7 @@ schema-version: "0.2.0"
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,derivative,finding,standard,publication}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -32,6 +33,14 @@ _common:
     provenance-hash:   sha256                   # SHA-256 of body content; auto-computed
     description:       string                   # short free-text agent-readable summary
     edges:             edges-list               # outgoing edges; see edges-allowed per type
+
+# ─────────────────────────────────────────────────────────────────────────────
+# universal edges — allowed from ANY node type (validator unions these in)
+# ─────────────────────────────────────────────────────────────────────────────
+_universal-edges:
+  - contributed-by     # → contributor id (ORCID URI / email / kebab); OUT-OF-GRAPH target.
+                       #   role + identity carried as edge metadata, e.g.:
+                       #   {type: contributed-by, target: "0000-0002-1825-0097", role: pi, name: "A VanMeter"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # dataset — BIDS-conformant data (subject, session, scan, or aggregate)
@@ -135,6 +144,30 @@ finding:
     - challenged-by       # → finding or publication
     - supports            # → finding or publication
   body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# experiment — a task / acquisition PARADIGM (the active experimental design)
+# distinct from `standard` (a static spec): an experiment has conditions, timing,
+# regressors. e.g. an event-related emotional-film design, a reward task, rest.
+# ─────────────────────────────────────────────────────────────────────────────
+experiment:
+  inherits: _common
+  required:
+    task-name:         string                   # e.g., "emoFilm", "wof", "rest"
+  optional:
+    design:            <enum:{event-related,block,resting-state,naturalistic,mixed}>
+    conditions:        [list-of-strings]         # e.g., [REST, NEU, POS, NEG]
+    regressors:        [list-of-strings]         # modeled regressors (e.g., salience-SRF convolved w/ HRF)
+    timing-source:     string                    # path/ref to the timing file (onsets/durations)
+    stimulus-set:      string                    # ref to the stimuli (e.g., the film clips)
+    duration-sec:      number
+    n-trials:          int
+  edges-allowed:
+    - realized-by        # → dataset (the data acquired under this paradigm)
+    - analyzed-by        # → method
+    - conforms-to        # → standard
+    - cited-in           # → publication
+  body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # standard — a spec, atlas, template, protocol

@@ -20,6 +20,7 @@ SCHEMA_PATH = Path(__file__).parent.parent / "schema" / "frontmatter.yaml"
 # IDs are kebab-style but allow uppercase letters and dots — needed for BIDS-canonical
 # tokens like `T1w`, `T2w`, version strings like `1.11.1`, and similar domain conventions.
 NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
+OUT_OF_GRAPH_EDGES = {"contributed-by"}  # target is an out-of-graph identifier (ORCID/email), not a node
 
 
 def load_schema():
@@ -103,7 +104,7 @@ def validate(rokb_path: Path, schema: dict):
 
         type_def = schema[node_type]
         required = {**schema["_common"]["required"], **type_def.get("required", {})}
-        edges_allowed = set(type_def.get("edges-allowed", []))
+        edges_allowed = set(type_def.get("edges-allowed", [])) | set(schema.get("_universal-edges", []))
 
         # 4. Required fields present
         for field in required:
@@ -124,7 +125,7 @@ def validate(rokb_path: Path, schema: dict):
                               f"allowed: {sorted(edges_allowed)}")
             if not target:
                 errors.append(f"{path}: edge missing `target`")
-            elif target not in index_ids:
+            elif etype not in OUT_OF_GRAPH_EDGES and target not in index_ids:
                 errors.append(f"{path}: edge target `{target}` not in index")
 
     # 6. Index ↔ disk consistency
