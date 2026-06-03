@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Generate Figure 1: the Glimmer schema diagram.
 
-Shows the 8 v0.3 entity types as nodes and a pruned set of canonical edge types
-as labeled directed edges. The layout follows the two flows the schema encodes:
-a left-to-right provenance flow (experiment → dataset → derivative) and an
-upward knowledge flow (derivative → finding → publication), with `concept` as
-the research-question layer findings and publications point up at.
+Shows the 10 v0.3.1 entity types as nodes and a pruned set of canonical edge
+types as labeled directed edges. The layout follows the three flows the schema
+encodes: a left-to-right provenance flow (experiment → dataset → derivative,
+with method/standard supporting), an upward knowledge flow (derivative →
+finding → publication) with `concept` as the research-question layer they point
+up at, and a social/attribution layer on the right (`persona`, `organization`)
+reached via authored-by / affiliated-with / funded-by.
 Output: figures/schema_diagram.pdf (for inclusion in the LaTeX paper)
 """
 import matplotlib
@@ -31,14 +33,17 @@ NODES = {
     # with method + standard supporting), knowledge flow rising to the upper right
     # (finding → publication), and `concept` at the top as the research-question
     # layer that experiment, finding, and publication all point up at.
-    "experiment":  {"pos": (-6.0,  0.4),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "experiment"},
-    "dataset":     {"pos": (-2.7,  0.4),  "fill": DATA_FILL, "text": TEXT_DARK,  "label": "dataset"},
-    "derivative":  {"pos": ( 0.8,  0.4),  "fill": DATA_FILL, "text": TEXT_DARK,  "label": "derivative"},
-    "method":      {"pos": (-1.0, -2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "method"},
-    "standard":    {"pos": (-3.8, -2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "standard"},
-    "finding":     {"pos": ( 3.0,  2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "finding"},
-    "publication": {"pos": ( 6.0,  2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "publication"},
-    "concept":     {"pos": ( 3.0,  4.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "concept"},
+    # provenance flow (bottom) ─ knowledge flow (mid) ─ social layer (right)
+    "experiment":  {"pos": (-6.6,  0.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "experiment"},
+    "dataset":     {"pos": (-3.3,  0.0),  "fill": DATA_FILL, "text": TEXT_DARK,  "label": "dataset"},
+    "derivative":  {"pos": (-0.2,  0.0),  "fill": DATA_FILL, "text": TEXT_DARK,  "label": "derivative"},
+    "method":      {"pos": (-1.6, -2.2),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "method"},
+    "standard":    {"pos": (-4.5, -2.2),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "standard"},
+    "finding":     {"pos": ( 1.6,  2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "finding"},
+    "publication": {"pos": ( 5.0,  2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "publication"},
+    "persona":     {"pos": ( 8.4,  2.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "persona"},
+    "concept":     {"pos": ( 1.6,  4.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "concept"},
+    "organization":{"pos": ( 8.4,  4.0),  "fill": META_FILL, "text": TEXT_LIGHT, "label": "organization"},
 }
 
 EDGES = [
@@ -53,19 +58,23 @@ EDGES = [
     ("dataset",     "standard",    "conforms-to"),
     ("derivative",  "finding",     "supports-finding"),
     ("finding",     "concept",     "addresses-concept", (-0.62, 0.0)),
-    ("finding",     "publication", "cited-in"),
-    ("publication", "concept",     "addresses-concept", (0.55, 0.25)),
+    ("finding",     "publication", "cited-in", (0.0, 0.5)),
+    ("publication", "concept",     "addresses-concept", (-0.2, 0.30)),
+    ("publication", "persona",     "authored-by", (0.0, 0.5)),
+    ("persona",     "organization","affiliated-with"),
+    ("concept",     "organization","funded-by", (0.0, 0.22)),
 ]
 # Omitted for legibility (all in the textual schema): method↔dataset applies-to,
 # method composes/requires-standard, derivative/dataset cited-in, publication
-# cites-*/aggregates, standard defines/versions, and the concept→concept family
-# (decomposes-into, extends-concept, subsumed-by, competes-with, superseded-by).
+# cites-*/aggregates, standard defines/versions, persona mentors/leads, org
+# part-of, and the concept→concept family (decomposes-into, extends-concept,
+# subsumed-by, competes-with, superseded-by).
 
 def main():
     import math
-    fig, ax = plt.subplots(figsize=(13, 7.5))
-    ax.set_xlim(-7.8, 8.0)
-    ax.set_ylim(-3.2, 5.0)
+    fig, ax = plt.subplots(figsize=(16, 7.8))
+    ax.set_xlim(-8.4, 10.4)
+    ax.set_ylim(-3.0, 4.8)
     ax.set_aspect("equal")
     ax.axis("off")
 
