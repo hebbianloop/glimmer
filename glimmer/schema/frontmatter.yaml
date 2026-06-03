@@ -89,6 +89,8 @@ method:
     - validates-against  # → publication
     - requires-standard  # → standard
     - composes           # → method (sub-methods for workflows)
+    - upstream-of        # → method (pipeline DAG: produces input for)
+    - downstream-of      # → method (pipeline DAG: consumes output of)
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +173,7 @@ experiment:
     - cited-in           # → publication
     - depends-on-method  # → method (research-program layer)
     - tests-hypothesis   # → concept (research-program layer)
+    - co-acquired-with   # → experiment/dataset (acquired in the same session)
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
