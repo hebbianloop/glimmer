@@ -157,10 +157,11 @@ Shipped in v0.3 (this loop now runs against the released schema):
 - `concept` node type — the research-question / hypothesis layer the loop decomposes and findings address.
 - `experiment` node type — for task/acquisition paradigms (Experiment Factory containers, jsPsych/PsychoPy tasks).
 - Cross-cutting edges: `addresses-concept` (finding/publication → concept), `tests-hypothesis` (experiment → concept), `extends-concept` / `subsumed-by` / `competes-with` / `superseded-by` (concept → concept), and the universal `contributed-by` attribution edge.
+- `persona` and `organization` node types + the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of` (v0.3.1). A literature scout or synthesis agent can now resolve "who worked on this concept" by walking `authored-by` / `leads` to persona nodes rather than parsing free-text author strings.
 
 Still on the roadmap:
 
-- `persona` and `organization` node types + `authored-by` / `affiliated-with` / `funded-by` edges (v0.3+ meta-graph).
+- `meta-analysis` publication subtype + `meta-analyzes` edges.
 - Optional: cryptographic signing of agent outputs (v0.5 — federated identity).
 
 This document specifies the operational pattern; the concept/experiment substrate it relies on is live as of v0.3.

@@ -11,6 +11,12 @@
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
 #
+# v0.3.1: added the meta-graph social layer — `persona` (a person or role) and
+# `organization` (institution/lab/funder/journal) node types, plus in-graph
+# attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`,
+# `leads`, `part-of`. The v0.3 `contributed-by` universal edge stays as the
+# lightweight, out-of-graph attribution option; these edges are the strict,
+# in-graph version whose targets must resolve to persona/organization nodes.
 # v0.3: added `experiment` (task/acquisition paradigm), `concept` (research
 # question / hypothesis as a first-class node), + `contributed-by` universal edge.
 # v0.2 changes from v0.1: dropped `qc-artifact` and `rater` (over-indexed on QC
@@ -18,7 +24,7 @@
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.3.0"
+schema-version: "0.3.1"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # common fields — every Glimmer node has these
@@ -26,7 +32,7 @@ schema-version: "0.3.0"
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,concept,standard,publication}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,concept,standard,publication,persona,organization}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -194,6 +200,8 @@ concept:
     - superseded-by     # → concept (a refined replacement supersedes this one)
     - supports          # → finding, publication, or concept (reinforcing evidence)
     - contradicts       # → finding, publication, or concept (contradictory evidence)
+    - authored-by       # → persona (who framed this question / leads it)
+    - funded-by         # → organization (the funder of this line of work)
     - cited-in          # → publication
   body-required: true
 
@@ -233,7 +241,44 @@ publication:
     - cites             # generic citation
     - aggregates        # → finding (this paper aggregates these findings)
     - addresses-concept # → concept (the publication's claim is about this concept)
+    - authored-by       # → persona (an author of this work, as an in-graph node)
   body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# persona — a person (researcher, collaborator) or an organizational role.
+# The in-graph identity a `contributed-by` / `authored-by` edge can resolve to.
+# Use `persona` when you want to model the social graph (who mentors whom, who
+# leads which question); use the lighter `contributed-by` universal edge with an
+# out-of-graph ORCID/email target when you only need attribution, not a node.
+# ─────────────────────────────────────────────────────────────────────────────
+persona:
+  inherits: _common
+  required:
+    persona-kind:      <enum:{researcher,collaborator,role,group}>
+  optional:
+    orcid:             string                   # ORCID id or URI, if a person
+    email:             string
+    aliases:           [list-of-strings]        # other names/handles this persona is known by
+  edges-allowed:
+    - affiliated-with   # → organization (current or historical affiliation)
+    - mentors           # → persona (advising / supervision relationship)
+    - leads             # → concept (this persona drives this research question)
+  body-required: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# organization — an institution, lab, consortium, journal, or funding body.
+# Personas affiliate with it; concepts are funded by it; orgs nest via part-of.
+# ─────────────────────────────────────────────────────────────────────────────
+organization:
+  inherits: _common
+  required:
+    org-kind:          <enum:{institution,lab,consortium,department,journal,funder,other}>
+  optional:
+    ror:               string                   # Research Organization Registry id
+    upstream-url:      string
+  edges-allowed:
+    - part-of           # → organization (lab within a department within a university)
+  body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # index file — required at the dataset root

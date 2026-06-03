@@ -42,9 +42,9 @@ The line between "core" and "project" is the `glimmer/` directory. Anything insi
 ```
 glimmer/
 ├── schema/
-│   ├── schema.md            # v0.3 spec — 8 entity types, edge taxonomy, sidecar format
+│   ├── schema.md            # v0.3 spec — 10 entity types, edge taxonomy, sidecar format
 │   ├── frontmatter.yaml     # machine-readable contract for validators
-│   └── glimmer-version      # current core version (0.3.0)
+│   └── glimmer-version      # current core version (0.3.1)
 └── tools/
     ├── validate.py          # schema validator (enforces agent-protocol verifiability)
     ├── cli.py               # `glimmer` CLI single entry point
@@ -102,6 +102,8 @@ python verify.py
 ## Versioning policy
 
 Glimmer follows semantic versioning at the **schema** level. Core utility updates that don't change the schema are minor; schema changes that break existing sidecars are major. The current schema version is recorded in `glimmer/schema/glimmer-version`.
+
+v0.3.1 added the meta-graph social layer: the `persona` and `organization` node types and the in-graph attribution edges (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`).
 
 v0.3 added the `experiment` node type (active task/acquisition paradigms), the `concept` node type (the research-question / hypothesis layer a program operates at), and the universal `contributed-by` attribution edge.
 

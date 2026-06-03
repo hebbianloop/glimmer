@@ -1,6 +1,6 @@
 # Glimmer Roadmap
 
-> v0.3.0 (current) extends the architecture beyond a single dataset: eight entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`), the universal `contributed-by` attribution edge, the `ds000114-nipype` worked example, and the retrieval adapter for the literature-scout role. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
+> v0.3.1 (current) extends the architecture beyond a single dataset: ten entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`, `persona`, `organization`), the universal `contributed-by` attribution edge plus the in-graph attribution layer (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`), the `ds000114-nipype` worked example, and the retrieval adapter for the literature-scout role. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
 
 ## v0.2 — Interop and BIDS Bridge
 
@@ -18,14 +18,14 @@ The architectural extension that scales Glimmer beyond a single dataset to span 
 
 ### New entity types
 
-Status: **`experiment`** and **`concept`** shipped in v0.3.0; **`persona`**, **`organization`**, and **`meta-analysis`** remain planned.
+Status: **`experiment`** and **`concept`** shipped in v0.3.0; **`persona`** and **`organization`** shipped in v0.3.1; **`meta-analysis`** remains planned.
 
 | Type | Status | Role |
 |---|---|---|
-| **`concept`** | ✅ shipped | A research question, hypothesis, or theme as a first-class node — the unit a research program operates at (what a grant funds, what a thesis defends, what a meta-analysis examines). Findings and publications point at it via `addresses-concept`; the agentic loop decomposes it via `decomposes-into`. |
-| **`experiment`** | ✅ shipped | A task / acquisition paradigm — the active experimental design (conditions, timing, regressors), distinct from a static `standard`. Carries `realized-by` → dataset, `analyzed-by` → method, `tests-hypothesis` → concept. (Container-digest pinning for Experiment Factory artifacts comes with `persona`/program tooling.) |
-| **`persona`** | planned | A person (researcher, lab head, collaborator) or an organizational role. A `persona` can `author` publications, `lead` concepts, `contribute-to` datasets, `mentor` other personas. (v0.3 ships `contributed-by` as an interim out-of-graph attribution edge.) |
-| **`organization`** | planned | An institution, lab, consortium, journal, funding body, or other organizational entity. Personas have affiliations; concepts may have institutional homes; publications have venues. |
+| **`concept`** | ✅ shipped (0.3.0) | A research question, hypothesis, or theme as a first-class node — the unit a research program operates at (what a grant funds, what a thesis defends, what a meta-analysis examines). Findings and publications point at it via `addresses-concept`; the agentic loop decomposes it via `decomposes-into`. |
+| **`experiment`** | ✅ shipped (0.3.0) | A task / acquisition paradigm — the active experimental design (conditions, timing, regressors), distinct from a static `standard`. Carries `realized-by` → dataset, `analyzed-by` → method, `tests-hypothesis` → concept. (Container-digest pinning for Experiment Factory artifacts comes with program tooling.) |
+| **`persona`** | ✅ shipped (0.3.1) | A person (researcher, collaborator) or an organizational role. Carries `affiliated-with` → organization, `mentors` → persona, `leads` → concept; is the in-graph target of `authored-by` / `contributed-by`. The lighter `contributed-by` universal edge (out-of-graph ORCID/email) remains for attribution without a node. |
+| **`organization`** | ✅ shipped (0.3.1) | An institution, lab, consortium, department, journal, or funding body. Personas affiliate with it (`affiliated-with`), concepts are funded by it (`funded-by`), and orgs nest via `part-of`. |
 | **`meta-analysis`** | planned | A specialized `publication` subtype that aggregates findings across multiple primary `publication` nodes. Has `meta-analyzes` edges to each primary work, and `addresses-concept` edges to the concepts it tests. |
 
 ### Cross-cutting edges
@@ -39,13 +39,19 @@ Shipped in v0.3.0:
 - `competes-with`: `concept → concept` (rival hypotheses)
 - `superseded-by`: `concept → concept` (a refined replacement supersedes this one)
 - `decomposes-into`: `concept → concept` (a question decomposed into sub-hypotheses)
-- `contributed-by`: any node → out-of-graph contributor id (interim attribution, see schema.md)
+- `contributed-by`: any node → out-of-graph contributor id (lightweight attribution, see schema.md)
 
-Planned (await `persona` / `organization` / `meta-analysis`):
+Shipped in v0.3.1 (the in-graph attribution layer):
 
 - `authored-by`: `publication → persona` or `concept → persona`
 - `affiliated-with`: `persona → organization`
 - `funded-by`: `concept → organization`
+- `mentors`: `persona → persona`
+- `leads`: `persona → concept`
+- `part-of`: `organization → organization`
+
+Planned (await `meta-analysis`):
+
 - `meta-analyzes`: `meta-analysis → publication` (citation with meta-analysis intent)
 - `produces-data-for`: `experiment → dataset` (the experiment's outputs)
 - `requires-experiment`: `dataset → experiment` (inverse, populated at index time)
