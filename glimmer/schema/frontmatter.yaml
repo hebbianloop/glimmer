@@ -11,8 +11,11 @@
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
 #
-# v0.3.1: generalized `dataset` beyond neuroimaging — domain-neutral base + a
-# `domain`-selected profile (only `neuroimaging`/BIDS defined; others illustrative).
+# v0.3.1: made the core schema domain-NEUTRAL. Domain-specific fields (BIDS
+# modality, fMRI design, Nipype node kind, neuroimaging output-kind) moved out of
+# the core node types into DOMAIN PROFILES under profiles/ (curated) and a KB's
+# _glimmer-profiles/ (local); a node resolves its profile via `domain` → KB
+# `default-domain` → this file's `default-domain`. See profiles/_profile.schema.yaml.
 # Also added the meta-graph social layer — `persona` (a person or role) and
 # `organization` (institution/lab/funder/journal) node types, plus in-graph
 # attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`,
@@ -29,6 +32,21 @@
 schema-version: "0.3.1"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
+# Fields whose vocabulary is fixed by a domain standard (BIDS modalities, fMRI
+# task designs, Nipype node kinds, …) do NOT live here; they live in PROFILE
+# files that augment the core types:
+#   glimmer/schema/profiles/<domain>.yaml   — the curated library (versioned in-repo)
+#   <rokb>/_glimmer-profiles/<domain>.yaml  — a researcher's own, local to one KB
+# A profile augments any node type with extra required/optional fields; see
+# profiles/_profile.schema.yaml for the format. The validator selects a node's
+# profile from its `domain` field, falling back to the KB-level `default-domain`
+# in _glimmer-index.json, then to this core default below. See schema.md →
+# "Domain profiles" for the full model and how to add one.
+# ─────────────────────────────────────────────────────────────────────────────
+default-domain: neuroimaging
+
+# ─────────────────────────────────────────────────────────────────────────────
 # common fields — every Glimmer node has these
 # ─────────────────────────────────────────────────────────────────────────────
 _common:
@@ -42,6 +60,9 @@ _common:
     provenance-hash:   sha256                   # SHA-256 of body content; auto-computed
     description:       string                   # short free-text agent-readable summary
     edges:             edges-list               # outgoing edges; see edges-allowed per type
+    domain:            string                   # profile selector; overrides the KB default-domain.
+                                                 # names a profile in profiles/ or the KB's
+                                                 # _glimmer-profiles/ (unknown domain → fields unchecked)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # universal edges — allowed from ANY node type (validator unions these in)
@@ -52,55 +73,28 @@ _universal-edges:
                        #   {type: contributed-by, target: "0000-0002-1825-0097", role: pi, name: "A VanMeter"}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# dataset — research data of any kind. The generic `dataset` carries only
-# domain-neutral fields; the attributes that are specific to a *kind* of data
-# live in a DOMAIN PROFILE selected by the `domain` field and governed by
-# whatever standard the researcher's field has settled on (BIDS for
-# neuroimaging, e.g. Psych-DS for behavioral, …). A validator merges the
-# matching profile's fields onto the generic dataset.
-#
-# We define ONLY the `neuroimaging` profile here — Glimmer is currently used for
-# neuroimaging data. The other domains (behavioral, social, geological,
-# astronomical, …) are listed to illustrate how the schema extends, NOT to
-# standardize them: their attributes are deliberately left to the researcher to
-# define against their own domain standard.
+# dataset — research data of any kind. Domain-NEUTRAL: it carries only identity,
+# generic provenance, and re-fetch coordinates. The attributes specific to a
+# *kind* of data (participant/session/modality for neuroimaging, etc.) come from
+# the domain profile the node resolves to — see "domain profiles" at the top of
+# this file and profiles/neuroimaging.yaml for the worked example.
 # ─────────────────────────────────────────────────────────────────────────────
 dataset:
   inherits: _common
-  default-domain: neuroimaging                  # profile assumed when `domain` is absent
   optional:
-    domain:            <enum:{neuroimaging}>     # selects the domain profile below; extensible
-                                                 # to behavioral/social/geological/astronomical/…
-                                                 # (those standards are undefined here, by design)
+    acquisition-date:  datetime                 # when the data was acquired/collected
+    metrics:           map                      # tool-extracted QC/summary metrics
+    # DataLad coordinates — domain-neutral re-fetch guarantees (git-annex backed)
+    datalad-superdataset:  string               # URL of the superdataset
+    datalad-relative-path: string               # path within the superdataset
+    datalad-commit-sha:    string               # pinned commit of the containing sub-dataset
+    datalad-annex-key:     string               # git-annex content hash, for single files
   edges-allowed:
     - produced-by      # → method (acquisition method)
     - derives-from     # → dataset (parent or source)
     - conforms-to      # → standard
     - cited-in         # → publication
   body-required: false
-  # Domain profiles add required/optional fields on top of the generic dataset,
-  # keyed by `domain`. Only `neuroimaging` is defined; the rest are illustrative
-  # placeholders whose standards the researcher's domain — not Glimmer — sets.
-  domain-profiles:
-    neuroimaging:                                # standard: BIDS
-      required:
-        subject-id:        string               # the participant identifier
-      optional:
-        session:           string               # optional session label
-        modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
-        acquisition-date:  datetime
-        scanner:           string               # e.g., "Siemens 3T TimTrio"
-        metrics:           map                  # tool-extracted QC metrics (optional)
-        bids-version:      string               # e.g., "1.11.1"
-        # DataLad coordinates — required for re-fetch guarantees
-        datalad-superdataset:  string           # URL of the superdataset
-        datalad-relative-path: string           # path within the superdataset
-        datalad-commit-sha:    string           # pinned commit of the containing sub-dataset
-        datalad-annex-key:     string           # git-annex content hash, for single files
-    # behavioral:   # standard set by the researcher (e.g. Psych-DS) — fields undefined here
-    # social:       # standard set by the researcher — fields undefined here
-    # geological:   # standard set by the researcher — fields undefined here
-    # astronomical: # standard set by the researcher — fields undefined here
 
 # ─────────────────────────────────────────────────────────────────────────────
 # method — a named analysis or pipeline (Nipype Workflow, Interface, Node)
@@ -116,7 +110,6 @@ method:
     container-image:   string                   # e.g., "nipreps/fmriprep:23.0.2"
     container-digest:  string                   # sha256 of the container image
     workflow-definition-sha: string             # git SHA of the workflow source file
-    nipype-node-type:  <enum:{Interface,Node,MapNode,Workflow,JoinNode}>
   edges-allowed:
     - applies-to         # → dataset
     - produces           # → derivative
@@ -133,7 +126,6 @@ method:
 derivative:
   inherits: _common
   required:
-    output-kind:       <enum:{volume,surface,timeseries,statistical-map,table,figure,other}>
     provenance-mode:   <enum:{deterministic,agent-inferred,stochastic}>
   optional:
     output-path:       string                   # relative path on disk
@@ -183,8 +175,9 @@ finding:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # experiment — a task / acquisition PARADIGM (the active experimental design)
-# distinct from `standard` (a static spec): an experiment has conditions, timing,
-# regressors. e.g. an event-related emotional-film design, a reward task, rest.
+# distinct from `standard` (a static spec): an experiment has conditions, a
+# stimulus set, trials. Domain-specific design vocabulary (fMRI design types,
+# modeled regressors, onset/duration timing) lives in the domain profile.
 # ─────────────────────────────────────────────────────────────────────────────
 experiment:
   inherits: _common
@@ -193,11 +186,7 @@ experiment:
     # research-program layer also uses `experiment` for hypothesis-level study
     # designs that have no single task file.
     task-name:         string                   # e.g., "emoFilm", "wof", "rest"
-    design:            <enum:{event-related,block,resting-state,naturalistic,mixed}>
     conditions:        [list-of-strings]         # e.g., [REST, NEU, POS, NEG]
-    regressors:        [list-of-strings]         # modeled regressors (e.g., salience-SRF convolved w/ HRF)
-    timing-source:     string                    # path/ref to the timing file (onsets/durations)
-    stimulus-set:      string                    # ref to the stimuli (e.g., the film clips)
     duration-sec:      number
     n-trials:          int
   edges-allowed:
@@ -340,6 +329,8 @@ _glimmer-index:
     created:           datetime
     description:       string
     upstream-graph:    string
+    default-domain:    string                   # domain profile for nodes that omit `domain`;
+                                                 # overrides the core schema default. e.g. "neuroimaging"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # validator hints

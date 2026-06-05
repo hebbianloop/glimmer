@@ -17,6 +17,8 @@ import sys, os, json, re, argparse, yaml
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).parent.parent / "schema" / "frontmatter.yaml"
+PROFILES_DIR = SCHEMA_PATH.parent / "profiles"      # curated, in-repo profile library
+LOCAL_PROFILES_DIRNAME = "_glimmer-profiles"        # researcher profiles, local to one KB
 # IDs are kebab-style but allow uppercase letters and dots — needed for BIDS-canonical
 # tokens like `T1w`, `T2w`, version strings like `1.11.1`, and similar domain conventions.
 NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
@@ -53,6 +55,39 @@ def load_schema():
         return yaml.load(SCHEMA_PATH.read_text(), Loader=_StrictLoader)
     except yaml.YAMLError as e:
         sys.exit(f"FATAL: schema {SCHEMA_PATH} is malformed: {e}")
+
+
+def load_profiles(rokb_path):
+    """Load the curated profile library + any profiles local to this KB.
+
+    Returns (profiles_by_domain, warnings). Each value is the parsed profile
+    dict (with its `augments` map). A local profile shadows a curated one of the
+    same name (a warning is emitted). Malformed/incomplete profiles are skipped
+    with a warning rather than aborting the whole run.
+    """
+    profiles, warns = {}, []
+    sources = [(PROFILES_DIR, "curated"),
+               (Path(rokb_path) / LOCAL_PROFILES_DIRNAME, "local")]
+    for directory, tier in sources:
+        if not directory.is_dir():
+            continue
+        for pf in sorted(directory.glob("*.yaml")):
+            if pf.name.startswith("_"):          # _profile.schema.yaml, etc.
+                continue
+            try:
+                doc = yaml.load(pf.read_text(), Loader=_StrictLoader) or {}
+            except yaml.YAMLError as e:
+                warns.append(f"{pf}: YAML parse error: {e}; profile skipped")
+                continue
+            name = doc.get("profile")
+            if not name or "augments" not in doc:
+                warns.append(f"{pf}: profile missing `profile` or `augments`; skipped")
+                continue
+            if name in profiles and tier == "local":
+                warns.append(f"{pf}: local profile `{name}` shadows the curated one")
+            doc["_tier"] = tier
+            profiles[name] = doc
+    return profiles, warns
 
 
 def read_sidecar(path: Path):
@@ -99,6 +134,15 @@ def validate(rokb_path: Path, schema: dict):
     if len(index_ids) != len(index["nodes"]):
         errors.append(f"{index_path}: duplicate node IDs in index")
 
+    # 1b. Domain profiles. A node resolves to a profile by its `domain` field,
+    # then the KB-level `default-domain` (index), then the core schema default.
+    profiles, profile_warns = load_profiles(rokb_path)
+    warnings.extend(profile_warns)
+    kb_default_domain = index.get("default-domain") or schema.get("default-domain")
+    if kb_default_domain and kb_default_domain not in profiles:
+        warnings.append(f"{index_path}: default-domain `{kb_default_domain}` has no profile "
+                        f"(curated or local); domain-specific fields go unchecked")
+
     # 2. Walk sidecars on disk
     sidecar_paths = list(rokb_path.glob("**/*.md")) + list(rokb_path.glob("**/*.json"))
     sidecar_paths = [p for p in sidecar_paths if p.name != "_glimmer-index.json"]
@@ -134,20 +178,18 @@ def validate(rokb_path: Path, schema: dict):
         required = {**schema["_common"]["required"], **type_def.get("required", {})}
         edges_allowed = set(type_def.get("edges-allowed", [])) | set(schema.get("_universal-edges", []))
 
-        # Domain profiles: a type that declares `domain-profiles` inherits the
-        # required fields of the profile its `domain` field selects (defaulting
-        # to `default-domain`). Only profiles defined in the schema are enforced;
-        # a domain with no defined profile is a hint, not an error — the
-        # researcher's standard may simply not be expressed here yet.
-        profiles = type_def.get("domain-profiles")
-        if profiles:
-            domain = fm.get("domain", type_def.get("default-domain"))
-            profile = profiles.get(domain)
-            if profile:
-                required = {**required, **profile.get("required", {})}
-            elif domain is not None:
-                warnings.append(f"{path}: domain `{domain}` has no profile defined in the schema "
-                                f"(domain-specific fields unchecked)")
+        # Domain profile: resolve this node's domain (its `domain` field, else the
+        # KB default) and merge the profile's `augments` for this node type onto
+        # the core requirements. An explicit `domain` naming an unknown profile is
+        # a hint, not an error — the researcher's standard may not be defined yet.
+        domain = fm.get("domain") or kb_default_domain
+        node_domain_profile = profiles.get(domain) if domain else None
+        if node_domain_profile:
+            aug = (node_domain_profile.get("augments") or {}).get(node_type) or {}
+            required = {**required, **(aug.get("required") or {})}
+        elif fm.get("domain") and fm["domain"] not in profiles:
+            warnings.append(f"{path}: domain `{fm['domain']}` has no profile (curated or local); "
+                            f"domain-specific fields unchecked")
 
         # 4. Required fields present
         for field in required:
@@ -210,7 +252,10 @@ def main():
     schema = load_schema()
     errors, warnings = validate(args.path, schema)
 
+    profiles, _ = load_profiles(args.path)
+    profile_list = ", ".join(f"{n} ({p.get('_tier', 'curated')})" for n, p in sorted(profiles.items())) or "none"
     print(f"Glimmer schema: {schema.get('schema-version', '?')}")
+    print(f"Profiles: {profile_list}")
     print(f"Target: {args.path}")
     print(f"Errors:   {len(errors)}")
     print(f"Warnings: {len(warnings)}")

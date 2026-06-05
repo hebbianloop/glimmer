@@ -1,0 +1,42 @@
+# Glimmer domain profile: neuroimaging (BIDS vocabulary).
+#
+# This is the domain Glimmer was first built for; it doubles as the worked
+# example for authoring a profile. Everything here was once hard-coded into the
+# core node types — it now lives in this file so the core schema stays domain-
+# neutral and other domains (behavioral, genomics, …) plug in the same way.
+profile: neuroimaging
+standard: BIDS
+standard-url: https://bids-specification.readthedocs.io
+version: "0.1"
+status: curated
+description: >
+  Brain Imaging Data Structure (BIDS) vocabulary: participant / session /
+  modality on datasets, fMRI task-design fields on experiments, Nipype node
+  kinds on methods, and neuroimaging derivative kinds.
+
+augments:
+  dataset:
+    required:
+      subject-id:        string                 # the participant identifier
+    optional:
+      session:           string                 # scan session label
+      modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
+      scanner:           string                 # e.g., "Siemens 3T TimTrio"
+      bids-version:      string                 # e.g., "1.11.1"
+
+  experiment:
+    optional:
+      design:            <enum:{event-related,block,resting-state,naturalistic,mixed}>
+      regressors:        [list-of-strings]      # modeled regressors (e.g., salience-SRF convolved w/ HRF)
+      timing-source:     string                 # path/ref to the timing file (onsets/durations)
+      stimulus-set:      string                 # ref to the stimuli (e.g., the film clips)
+
+  method:
+    optional:
+      nipype-node-type:  <enum:{Interface,Node,MapNode,Workflow,JoinNode}>
+
+  derivative:
+    required:
+      # the kind of neuroimaging output; required for neuroimaging derivatives
+      # (other domains define their own output taxonomy, or none).
+      output-kind:       <enum:{volume,surface,timeseries,statistical-map,table,figure,other}>
