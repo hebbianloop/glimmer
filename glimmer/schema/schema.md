@@ -130,10 +130,13 @@ Canonical edges:
 - `supports` / `contradicts` → `finding`, `publication`, or `concept`
 - `authored-by` → `persona` (who framed / leads this question)
 - `funded-by` → `organization` (the funder of this line of work)
+- `tested-by-experiment` → `experiment` (a paradigm designed to test this concept)
 - `cited-in` → `publication`
 
 Required fields:
 - `statement` — the question / hypothesis / theme as a sentence
+
+Optional scientometric fields (scout- / autoresearch-emitted concepts): `outcome-data`, `outcome-access`, `sensitivity`.
 
 Example sidecar fields:
 ```yaml
@@ -168,7 +171,7 @@ A person (researcher, collaborator) or an organizational role, as a first-class 
 Canonical edges:
 - `affiliated-with` → `organization` (current or historical affiliation)
 - `mentors` → `persona` (advising / supervision relationship)
-- `leads` → `concept` (this persona drives this research question)
+- `leads` → `concept` / `organization` / `experiment` (drives / heads this)
 
 Required fields:
 - `persona-kind` — one of `researcher`, `collaborator`, `role`, `group`
@@ -241,22 +244,13 @@ This is a hard schema requirement, not a hint. See `docs/agent-protocol.md`.
 
 ## Research-program / scientometric layer (v0.3)
 
-Node types for the autoresearch meta-graph — people, organizations, concepts,
-and hypothesis-level experiments — distinct from the imaging data layer.
+The autoresearch meta-graph layers people, organizations, and hypotheses over
+the imaging data layer. Its node types — `concept`, `persona`, `organization` —
+are documented in full under [Entity types](#entity-types--canonical-edges)
+above; this section records only the v0.3 deltas to the data-layer types:
 
-### `concept`
-A research concept / hypothesis under study. Edges: `authored-by` → persona,
-`funded-by` → organization, `tested-by-experiment` → experiment. Optional
-`outcome-data` / `outcome-access` / `sensitivity` for gated outcome variables.
-
-### `persona`
-A contributor (researcher, mentor, PI). Edges: `affiliated-with` → organization,
-`leads` → organization/experiment, `mentors` → persona.
-
-### `organization`
-A lab, institution, or funder. Edge: `part-of` → organization.
-
-Also in v0.3: `experiment.task-name` is now optional (the research-program layer
-uses `experiment` for hypothesis-level designs with no single task file, adding
-`depends-on-method` / `tests-hypothesis` edges); `publication` may carry
-`addresses-concept` / `authored-by` edges (scout-emitted literature).
+- `experiment.task-name` is now **optional** — the research-program layer uses
+  `experiment` for hypothesis-level study designs with no single task file, and
+  adds `depends-on-method` → `method` and `co-acquired-with` → `experiment`/`dataset` edges.
+- `publication` may carry `addresses-concept` → `concept` and `authored-by` →
+  `persona` edges (scout-emitted literature).

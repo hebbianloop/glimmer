@@ -1,4 +1,4 @@
-# Glimmer Schema v0.2.0 — Front-Matter Field Definitions
+# Glimmer Schema v0.3.1 — Front-Matter Field Definitions
 #
 # This file is the machine-readable contract for what fields each entity type
 # must, may, and may not have in its sidecar front-matter. Validators consume
@@ -207,7 +207,6 @@ experiment:
     - conforms-to        # → standard
     - cited-in           # → publication
     - depends-on-method  # → method (research-program layer)
-    - tests-hypothesis   # → concept (research-program layer)
     - co-acquired-with   # → experiment/dataset (acquired in the same session)
   body-required: true
 
@@ -226,18 +225,23 @@ concept:
     concept-kind:      <enum:{research-question,hypothesis,theme,construct}>
     status:            <enum:{open,under-investigation,supported,refuted,superseded}>
     falsifiable:       bool                      # true when stated as a testable claim
+    # scientometric / meta-graph fields (scout- and autoresearch-emitted concepts)
+    outcome-data:      string                   # ref to a gated outcome variable, if any
+    outcome-access:    string                   # access status of that outcome data
+    sensitivity:       string                   # data-sensitivity classification
   edges-allowed:
-    - decomposes-into   # → concept (a question decomposed into sub-hypotheses)
-    - extends-concept   # → concept (specialization / theory inheritance)
-    - subsumed-by       # → concept (becomes a special case of a broader concept)
-    - competes-with     # → concept (rival hypothesis)
-    - superseded-by     # → concept (a refined replacement supersedes this one)
-    - supports          # → finding, publication, or concept (reinforcing evidence)
-    - contradicts       # → finding, publication, or concept (contradictory evidence)
-    - authored-by       # → persona (who framed this question / leads it)
-    - funded-by         # → organization (the funder of this line of work)
-    - cited-in          # → publication
-  body-required: true
+    - decomposes-into      # → concept (a question decomposed into sub-hypotheses)
+    - extends-concept      # → concept (specialization / theory inheritance)
+    - subsumed-by          # → concept (becomes a special case of a broader concept)
+    - competes-with        # → concept (rival hypothesis)
+    - superseded-by        # → concept (a refined replacement supersedes this one)
+    - supports             # → finding, publication, or concept (reinforcing evidence)
+    - contradicts          # → finding, publication, or concept (contradictory evidence)
+    - authored-by          # → persona (who framed this question / leads it)
+    - funded-by            # → organization (the funder of this line of work)
+    - tested-by-experiment # → experiment (a paradigm designed to test this concept)
+    - cited-in             # → publication
+  body-required: false                          # meta-graph concepts may be bodyless
 
 # ─────────────────────────────────────────────────────────────────────────────
 # standard — a spec, atlas, template, protocol
@@ -279,36 +283,12 @@ publication:
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
-# research-program / scientometric layer (v0.3) — people, organizations, and
-# concepts the autoresearch meta-graph emits, distinct from the imaging data
-# layer above. Minimal fields (the _common set); the value is in the edges that
-# connect literature + hypotheses + contributors + funders.
+# research-program / scientometric layer — the `concept` type above plus the
+# `persona` and `organization` types below are the people / organizations /
+# hypotheses the autoresearch meta-graph emits, distinct from the imaging data
+# layer. The value is in the edges that connect literature + hypotheses +
+# contributors + funders.
 # ─────────────────────────────────────────────────────────────────────────────
-concept:
-  inherits: _common
-  optional:
-    outcome-data:      string                   # ref to a gated outcome variable, if any
-    outcome-access:    string                   # access status of that outcome data
-    sensitivity:       string                   # data-sensitivity classification
-  edges-allowed:
-    - authored-by          # → persona
-    - funded-by            # → organization
-    - tested-by-experiment # → experiment
-  body-required: false
-
-persona:
-  inherits: _common
-  edges-allowed:
-    - affiliated-with   # → organization
-    - leads             # → organization or experiment
-    - mentors           # → persona
-  body-required: false
-
-organization:
-  inherits: _common
-  edges-allowed:
-    - part-of           # → organization
-  body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # persona — a person (researcher, collaborator) or an organizational role.
@@ -328,7 +308,7 @@ persona:
   edges-allowed:
     - affiliated-with   # → organization (current or historical affiliation)
     - mentors           # → persona (advising / supervision relationship)
-    - leads             # → concept (this persona drives this research question)
+    - leads             # → concept / organization / experiment (drives / heads this)
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -352,7 +332,7 @@ organization:
 _glimmer-index:
   filename: "_glimmer-index.json"
   required:
-    schema:            string                   # e.g., "glimmer/v0.2.0"
+    schema:            string                   # e.g., "glimmer/v0.3.1"
     dataset-name:      string
     node-count:        int
     nodes:             [list-of-nodes]
