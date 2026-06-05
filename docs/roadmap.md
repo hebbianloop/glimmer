@@ -117,7 +117,7 @@ This is what mrinit was reaching for but didn't reach. At v0.4 it lands as a fir
 
 ## v0.5 — Agent SDK
 
-At this point the reference agent (`glimmer/tools/agent.py`) has been the minimal QC agent. v0.4 promotes the agent's primitives into a reusable SDK:
+The reference agent (`glimmer/tools/agent.py`) lands as a minimal QC agent, then v0.5 promotes its primitives into a reusable SDK:
 
 - `glimmer.agent.Tools` — class with `load_index`, `read_node`, `walk_edge`, `rerun_method`, `emit_finding` methods, parameterized over arbitrary LLM clients.
 - `glimmer.agent.Reasoning` — base class for project-specific agents (trace verification, finding synthesis, literature review, meta-analysis summarization). Authors of project agents subclass this and only fill in domain-specific reasoning.
