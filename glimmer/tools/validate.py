@@ -23,8 +23,36 @@ NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
 OUT_OF_GRAPH_EDGES = {"contributed-by"}  # target is an out-of-graph identifier (ORCID/email), not a node
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that rejects duplicate mapping keys instead of silently
+    keeping the last one. A duplicate type/field key is never intentional —
+    in the schema it shadows a whole definition (e.g. two `concept:` blocks),
+    and in a sidecar it silently drops front-matter — so it must be an error.
+    """
+
+
+def _no_duplicate_keys(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.YAMLError(
+                f"duplicate key `{key}` at line {key_node.start_mark.line + 1}"
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
+)
+
+
 def load_schema():
-    return yaml.safe_load(SCHEMA_PATH.read_text())
+    try:
+        return yaml.load(SCHEMA_PATH.read_text(), Loader=_StrictLoader)
+    except yaml.YAMLError as e:
+        sys.exit(f"FATAL: schema {SCHEMA_PATH} is malformed: {e}")
 
 
 def read_sidecar(path: Path):
@@ -36,7 +64,7 @@ def read_sidecar(path: Path):
         except ValueError:
             raise ValueError(f"{path}: malformed front-matter delimiters")
         try:
-            fm_dict = yaml.safe_load(fm) or {}
+            fm_dict = yaml.load(fm, Loader=_StrictLoader) or {}
         except yaml.YAMLError as e:
             raise ValueError(f"{path}: YAML parse error: {e}")
         return fm_dict, body
