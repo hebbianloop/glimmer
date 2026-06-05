@@ -109,7 +109,7 @@ A meta-analysis traverses the graph: start at a concept, walk `authored-by` to p
 The high-level "drop any data, Glimmer figures it out" capability you've been reaching for. v0.4 adds:
 
 - **`glimmer discover <path>`** — walk a directory, classify the data, propose the right standard overlay.
-- **Standards beyond BIDS:** GA4GH (genomics), MIAME / MINSEQE (microarray / sequencing), CIF (crystallography), Frictionless Data (tabular), DataCite (publication-level), domain-agnostic JSON-LD via schema.org.
+- **Standards beyond BIDS:** GA4GH (genomics), MIAME / MINSEQE (microarray / sequencing), CIF (crystallography), Frictionless Data (tabular), DataCite (publication-level), domain-agnostic JSON-LD via schema.org. The mechanism for these already shipped in v0.3.1 as **domain profiles** (`glimmer/schema/profiles/`, see `schema.md → Domain profiles`); v0.4 adds the autodetection that *selects or scaffolds* the right profile for dropped-in data, and grows the curated library to the standards above.
 - **Auto-overlay generation:** once the data type is classified, Glimmer emits the appropriate sidecars (BIDS JSON for neuroimaging, Frictionless `datapackage.json` for tabular, etc.) plus the cross-standard Glimmer index.
 - **Conflict resolution:** when a dataset partly conforms to multiple standards (a BIDS dataset with embedded genomic side-data), Glimmer's index records which standard governs which subtree; per-subtree validation runs independently.
 
@@ -127,11 +127,22 @@ At this point the reference agent (`glimmer/tools/agent.py`) has been the minima
 
 When two research groups maintain Glimmer projects on the same dataset, they should be able to publish their schemas, agents, and verification baselines as a shared registry. v0.6 specifies:
 
-- A schema-registry format for cross-institution publication of Glimmer extensions.
+- A schema-registry format for cross-institution publication of Glimmer extensions. **Domain profiles are the unit of publication here** — a curated profile (`status: curated`) lives in this repo; a profile published through the registry carries `status: community`. The `_profile.schema.yaml` metadata (`standard`, `version`, `status`) is the registry record.
 - A reputation / provenance model for who proposed which schema extension.
 - A federated-query mechanism: agent at site A can issue a query, the local graph + remote schema permit reasoning, the response is signed by the agent's identity.
 
 This is also the natural junction with decentralized-science infrastructure (Opscientia, OpenNeuro, Holonym-style verifiable researcher identity).
+
+## v0.7 — Hosted service: CLI ↔ glimmer.science  *(pending service architecture rewrite)*
+
+Today the CLI is local-only — it builds, validates, and traverses a file-tree RO-KB on disk. Once the **glimmer.science backend is rearchitected**, the CLI becomes the client to a hosted research-object service:
+
+- **`glimmer auth login`** — authenticate the CLI to glimmer.science and bind to a project the user created there.
+- **Resource provisioning** — request and manage a project's backing resources from the CLI: **storage** (dataset hosting / DataLad remotes) and **compute** (run a `method` / pipeline remotely rather than locally).
+- **Remote research-object operations** — modify / update / query the hosted RO-KB through the CLI: push new nodes and edges, fetch a subgraph, run a query against the project's graph.
+- **Identity & provenance** — operations are signed by the authenticated researcher identity, tying into the v0.6 federation model and Holonym-style verifiable identity.
+
+Dependency: **blocked on the glimmer.science service architecture rewrite.** Captured here so the CLI surface is designed against the service rather than retrofitted later.
 
 ## Beyond v0.5 — Open questions
 

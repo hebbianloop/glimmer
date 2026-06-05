@@ -57,6 +57,13 @@ def load_schema():
         sys.exit(f"FATAL: schema {SCHEMA_PATH} is malformed: {e}")
 
 
+def _profile_hint(domain):
+    """One-line, actionable next step for an unresolved domain — no fictional CLI."""
+    return (f"→ either use a listed profile (the `Profiles:` line above lists what's active), "
+            f"or author one at <rokb>/{LOCAL_PROFILES_DIRNAME}/{domain}.yaml "
+            f"(template: profiles/_profile.schema.yaml; guide: docs/extending-the-schema.md → Domain profiles)")
+
+
 def load_profiles(rokb_path):
     """Load the curated profile library + any profiles local to this KB.
 
@@ -141,7 +148,8 @@ def validate(rokb_path: Path, schema: dict):
     kb_default_domain = index.get("default-domain") or schema.get("default-domain")
     if kb_default_domain and kb_default_domain not in profiles:
         warnings.append(f"{index_path}: default-domain `{kb_default_domain}` has no profile "
-                        f"(curated or local); domain-specific fields go unchecked")
+                        f"(curated or local); domain-specific fields go unchecked. "
+                        f"{_profile_hint(kb_default_domain)}")
 
     # 2. Walk sidecars on disk
     sidecar_paths = list(rokb_path.glob("**/*.md")) + list(rokb_path.glob("**/*.json"))
@@ -189,7 +197,7 @@ def validate(rokb_path: Path, schema: dict):
             required = {**required, **(aug.get("required") or {})}
         elif fm.get("domain") and fm["domain"] not in profiles:
             warnings.append(f"{path}: domain `{fm['domain']}` has no profile (curated or local); "
-                            f"domain-specific fields unchecked")
+                            f"domain-specific fields unchecked. {_profile_hint(fm['domain'])}")
 
         # 4. Required fields present
         for field in required:
