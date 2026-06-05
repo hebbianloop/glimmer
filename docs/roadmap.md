@@ -1,6 +1,6 @@
 # Glimmer Roadmap
 
-> v0.1.0 (current) is the minimum viable architecture: seven entity types, one worked example, the reference QC agent. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
+> v0.3.1 (current) extends the architecture beyond a single dataset: ten entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`, `persona`, `organization`), the universal `contributed-by` attribution edge plus the in-graph attribution layer (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`), the `ds000114-nipype` worked example, and the retrieval adapter for the literature-scout role. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
 
 ## v0.2 — Interop and BIDS Bridge
 
@@ -14,31 +14,47 @@ Targeted improvements that lower adoption friction without changing the core sch
 
 ## v0.3 — The Meta-Graph + Experiments + Autoresearch
 
-The architectural extension that scales Glimmer beyond a single dataset to span research projects, research programs, literature corpora, and active autoresearch loops. Introduces five new node types and a set of cross-cutting edges.
+The architectural extension that scales Glimmer beyond a single dataset to span research projects, research programs, literature corpora, and active autoresearch loops. Introduces new node types and a set of cross-cutting edges.
 
 ### New entity types
 
-| Type | Role |
-|---|---|
-| **`persona`** | A person (researcher, lab head, collaborator) or an organizational role. A `persona` can `author` publications, `lead` concepts, `contribute-to` datasets, `mentor` other personas. |
-| **`concept`** | An abstract research theme, hypothesis, or open question. Concepts contain datasets and produce publications. They are the unit at which research programs operate — what a grant funds, what a thesis defends, what a meta-analysis examines. |
-| **`organization`** | An institution, lab, consortium, journal, funding body, or other organizational entity. Personas have affiliations; concepts may have institutional homes; publications have venues. |
-| **`experiment`** | A behavioral or imaging experimental paradigm shipped as a reproducible artifact — typically an [Experiment Factory](https://expfactory.org) container, a jsPsych task, or a PsychoPy script. The experiment node carries its container digest, its dependencies on `method` nodes, and produces `dataset` nodes when it is run. |
-| **`meta-analysis`** | A specialized `publication` subtype that aggregates findings across multiple primary `publication` nodes. Has `meta-analyzes` edges to each primary work, and `addresses-concept` edges to the concepts it tests. |
+Status: **`experiment`** and **`concept`** shipped in v0.3.0; **`persona`** and **`organization`** shipped in v0.3.1; **`meta-analysis`** remains planned.
 
-### Cross-cutting edges (v0.3)
+| Type | Status | Role |
+|---|---|---|
+| **`concept`** | ✅ shipped (0.3.0) | A research question, hypothesis, or theme as a first-class node — the unit a research program operates at (what a grant funds, what a thesis defends, what a meta-analysis examines). Findings and publications point at it via `addresses-concept`; the agentic loop decomposes it via `decomposes-into`. |
+| **`experiment`** | ✅ shipped (0.3.0) | A task / acquisition paradigm — the active experimental design (conditions, timing, regressors), distinct from a static `standard`. Carries `realized-by` → dataset, `analyzed-by` → method, `tests-hypothesis` → concept. (Container-digest pinning for Experiment Factory artifacts comes with program tooling.) |
+| **`persona`** | ✅ shipped (0.3.1) | A person (researcher, collaborator) or an organizational role. Carries `affiliated-with` → organization, `mentors` → persona, `leads` → concept; is the in-graph target of `authored-by` / `contributed-by`. The lighter `contributed-by` universal edge (out-of-graph ORCID/email) remains for attribution without a node. |
+| **`organization`** | ✅ shipped (0.3.1) | An institution, lab, consortium, department, journal, or funding body. Personas affiliate with it (`affiliated-with`), concepts are funded by it (`funded-by`), and orgs nest via `part-of`. |
+| **`meta-analysis`** | planned | A specialized `publication` subtype that aggregates findings across multiple primary `publication` nodes. Has `meta-analyzes` edges to each primary work, and `addresses-concept` edges to the concepts it tests. |
+
+### Cross-cutting edges
+
+Shipped in v0.3.0:
+
+- `addresses-concept`: `finding → concept` and `publication → concept` (the claim is about this concept)
+- `tests-hypothesis`: `experiment → concept` (the paradigm is designed to test this concept)
+- `extends-concept`: `concept → concept` (theory inheritance / specialization)
+- `subsumed-by`: `concept → concept` (one concept becomes a special case of another over time)
+- `competes-with`: `concept → concept` (rival hypotheses)
+- `superseded-by`: `concept → concept` (a refined replacement supersedes this one)
+- `decomposes-into`: `concept → concept` (a question decomposed into sub-hypotheses)
+- `contributed-by`: any node → out-of-graph contributor id (lightweight attribution, see schema.md)
+
+Shipped in v0.3.1 (the in-graph attribution layer):
 
 - `authored-by`: `publication → persona` or `concept → persona`
 - `affiliated-with`: `persona → organization`
 - `funded-by`: `concept → organization`
-- `extends-concept`: `concept → concept` (theory inheritance / specialization)
+- `mentors`: `persona → persona`
+- `leads`: `persona → concept`
+- `part-of`: `organization → organization`
+
+Planned (await `meta-analysis`):
+
 - `meta-analyzes`: `meta-analysis → publication` (citation with meta-analysis intent)
-- `competes-with`: `concept → concept` (rival hypotheses)
-- `subsumed-by`: `concept → concept` (one concept becomes a special case of another over time)
-- `tests-hypothesis`: `experiment → concept` (the experiment is designed to test this concept)
 - `produces-data-for`: `experiment → dataset` (the experiment's outputs)
 - `requires-experiment`: `dataset → experiment` (inverse, populated at index time)
-- `addresses-concept`: `publication → concept` (the publication's claim is about this concept)
 
 ### Why `experiment` is its own type, not a sub-`method`
 

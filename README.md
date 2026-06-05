@@ -4,7 +4,7 @@
 >
 > The 2010s gave us reproducible pipelines. Glimmer is the next layer up — the typed-entity graph that makes the agentic feedback loop traversable over those pipelines.
 
-[![Status: v0.2](https://img.shields.io/badge/status-v0.2-blue.svg)](https://github.com/hebbianloop/glimmer)
+[![Status: v0.3](https://img.shields.io/badge/status-v0.3-blue.svg)](https://github.com/hebbianloop/glimmer)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Template](https://img.shields.io/badge/repo-template-purple.svg)](https://github.com/hebbianloop/glimmer/generate)
 
@@ -42,9 +42,9 @@ The line between "core" and "project" is the `glimmer/` directory. Anything insi
 ```
 glimmer/
 ├── schema/
-│   ├── schema.md            # v0.2 spec — 6 entity types, edge taxonomy, sidecar format
+│   ├── schema.md            # v0.3 spec — 10 entity types, edge taxonomy, sidecar format
 │   ├── frontmatter.yaml     # machine-readable contract for validators
-│   └── glimmer-version      # current core version (0.2.0)
+│   └── glimmer-version      # current core version (0.3.1)
 └── tools/
     ├── validate.py          # schema validator (enforces agent-protocol verifiability)
     ├── cli.py               # `glimmer` CLI single entry point
@@ -102,6 +102,10 @@ python verify.py
 ## Versioning policy
 
 Glimmer follows semantic versioning at the **schema** level. Core utility updates that don't change the schema are minor; schema changes that break existing sidecars are major. The current schema version is recorded in `glimmer/schema/glimmer-version`.
+
+v0.3.1 added the meta-graph social layer: the `persona` and `organization` node types and the in-graph attribution edges (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`).
+
+v0.3 added the `experiment` node type (active task/acquisition paradigms), the `concept` node type (the research-question / hypothesis layer a program operates at), and the universal `contributed-by` attribution edge.
 
 v0.2 dropped `qc-artifact` and `rater` (over-indexed on QC as the canonical example) and added `finding` (EVI-aligned) between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative` rather than a separate node type.
 

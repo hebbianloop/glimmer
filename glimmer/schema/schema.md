@@ -2,14 +2,14 @@
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
 
-v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node) and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
+v0.3.1 adds the meta-graph social layer: `persona` (a person or role) and `organization` (institution/lab/funder/journal) node types, plus the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, and `part-of`. v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node), `concept` (a research question / hypothesis as a first-class node, the unit a research program operates at), and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
 
 ## Common front-matter (all node types)
 
 ```yaml
 ---
 id: <kebab-case-slug>            # MUST be unique within the dataset
-type: <one of: dataset|method|experiment|derivative|finding|standard|publication>
+type: <one of: dataset|method|experiment|derivative|finding|concept|standard|publication|persona|organization>
 name: <human-readable name>
 created: <ISO8601>
 modified: <ISO8601>
@@ -50,6 +50,7 @@ A task or acquisition **paradigm** — the experimental design under which data 
 Canonical edges:
 - `realized-by` → `dataset` node (the data acquired under this paradigm)
 - `analyzed-by` → `method` node
+- `tests-hypothesis` → `concept` node (the paradigm is designed to test this hypothesis)
 - `conforms-to` → `standard` node
 - `cited-in` → `publication` node
 
@@ -104,13 +105,38 @@ Canonical edges:
 - `cited-in` → `publication`
 - `challenged-by` → `finding` or `publication` (contradictory evidence)
 - `supports` → `finding` or `publication` (reinforcing evidence)
-- `addresses-concept` → `concept` node (v0.3)
+- `addresses-concept` → `concept` node
 
 Required fields:
 - `interpretation` — human-readable assertion ("Subject sub-01 T1w brain volume = 1,234,567 mm³")
 - `based-on` — list of derivative or dataset node IDs
 
 When `produced-by-agent` is set (an LLM emitted this finding rather than a deterministic computation), the `reasoning-trace` field becomes required. See `docs/agent-protocol.md` for the full verifiability contract.
+
+### `concept`
+A research question, hypothesis, or theme as a first-class node — the unit a research **program** operates at (what a grant funds, what a thesis defends, what a meta-analysis examines). Findings and publications point *up* at a concept via `addresses-concept`; the agentic loop decomposes a question *down* into sub-hypotheses via `decomposes-into`. See [`docs/agentic-loop.md`](../../docs/agentic-loop.md).
+
+Canonical edges:
+- `decomposes-into` → `concept` (a question decomposed into sub-hypotheses)
+- `extends-concept` → `concept` (specialization / theory inheritance)
+- `subsumed-by` → `concept` (becomes a special case of a broader concept)
+- `competes-with` → `concept` (rival hypothesis)
+- `superseded-by` → `concept` (a refined replacement supersedes this one)
+- `supports` / `contradicts` → `finding`, `publication`, or `concept`
+- `authored-by` → `persona` (who framed / leads this question)
+- `funded-by` → `organization` (the funder of this line of work)
+- `cited-in` → `publication`
+
+Required fields:
+- `statement` — the question / hypothesis / theme as a sentence
+
+Example sidecar fields:
+```yaml
+statement: "Naturalistic emotional-film fMRI in adolescence predicts violence outcomes in emerging adulthood."
+concept-kind: hypothesis
+status: under-investigation
+falsifiable: true
+```
 
 ### `standard`
 A spec, atlas, template, or protocol. Nodes themselves, not just background metadata, so constraints can be expressed as edges and an agent can read the standard's definition directly.
@@ -128,13 +154,42 @@ Canonical edges:
 - `cites-derivative` → `derivative`
 - `cites-finding` → `finding`
 - `aggregates` → `finding` (this paper aggregates these findings into its argument)
+- `addresses-concept` → `concept` (the publication's claim is about this concept)
+- `authored-by` → `persona` (an author of this work, as an in-graph node)
+
+### `persona`
+A person (researcher, collaborator) or an organizational role, as a first-class node — the in-graph identity an `authored-by` or `contributed-by` edge can resolve to. Model a `persona` when the social graph matters (who mentors whom, who leads which question); use the lighter `contributed-by` universal edge with an out-of-graph ORCID/email target when you only need attribution, not a node.
+
+Canonical edges:
+- `affiliated-with` → `organization` (current or historical affiliation)
+- `mentors` → `persona` (advising / supervision relationship)
+- `leads` → `concept` (this persona drives this research question)
+
+Required fields:
+- `persona-kind` — one of `researcher`, `collaborator`, `role`, `group`
+
+Example sidecar fields:
+```yaml
+persona-kind: researcher
+orcid: "0000-0002-1825-0097"
+aliases: ["A. VanMeter", "Ashley S. VanMeter"]
+```
+
+### `organization`
+An institution, lab, consortium, department, journal, or funding body. Personas affiliate with it, concepts are funded by it, and organizations nest via `part-of`.
+
+Canonical edges:
+- `part-of` → `organization` (a lab within a department within a university)
+
+Required fields:
+- `org-kind` — one of `institution`, `lab`, `consortium`, `department`, `journal`, `funder`, `other`
 
 ## Cross-cutting edges (`_universal-edges`)
 
 Some edges are allowed from **any** node type; the validator unions these in regardless of the source node's `edges-allowed`.
 
 ### `contributed-by`
-Attribution **as an edge**: who (or what) contributed to this node, and in what role. The target is an **out-of-graph contributor identifier** (ORCID URI preferred, else email or a kebab id) — like `publication.authors`, contributors are referenced by stable id, not required to be graph nodes. Role + identity ride as edge metadata:
+Attribution **as an edge**: who (or what) contributed to this node, and in what role. The target is an **out-of-graph contributor identifier** (ORCID URI preferred, else email or a kebab id) — like `publication.authors`, contributors are referenced by stable id, not required to be graph nodes. Role + identity ride as edge metadata. (Once you model contributors as `persona` nodes, the target *may* be a persona node-id; for strict in-graph attribution that the validator checks against the index, prefer `authored-by` → `persona`.)
 
 ```yaml
 edges:
@@ -150,7 +205,7 @@ At the dataset root. Lists every node ID + its file path. Mandatory load for the
 
 ```json
 {
-  "schema": "glimmer/v0.2.0",
+  "schema": "glimmer/v0.3.0",
   "dataset-name": "ds000114-nipype-demo",
   "nodes": [
     {"id": "dataset-sub-01-T1w", "type": "dataset", "path": "datasets/sub-01-T1w.md"},
