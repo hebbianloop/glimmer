@@ -106,6 +106,21 @@ def validate(rokb_path: Path, schema: dict):
         required = {**schema["_common"]["required"], **type_def.get("required", {})}
         edges_allowed = set(type_def.get("edges-allowed", [])) | set(schema.get("_universal-edges", []))
 
+        # Domain profiles: a type that declares `domain-profiles` inherits the
+        # required fields of the profile its `domain` field selects (defaulting
+        # to `default-domain`). Only profiles defined in the schema are enforced;
+        # a domain with no defined profile is a hint, not an error — the
+        # researcher's standard may simply not be expressed here yet.
+        profiles = type_def.get("domain-profiles")
+        if profiles:
+            domain = fm.get("domain", type_def.get("default-domain"))
+            profile = profiles.get(domain)
+            if profile:
+                required = {**required, **profile.get("required", {})}
+            elif domain is not None:
+                warnings.append(f"{path}: domain `{domain}` has no profile defined in the schema "
+                                f"(domain-specific fields unchecked)")
+
         # 4. Required fields present
         for field in required:
             if field not in fm:

@@ -24,7 +24,9 @@ description: |
 ## Entity types + canonical edges
 
 ### `dataset`
-A BIDS-conformant dataset or sub-dataset (a subject is itself a sub-dataset). Carries DataLad coordinates so the graph is self-describing for re-fetch.
+Research data of any kind. The generic `dataset` is domain-neutral; the attributes specific to a *kind* of data come from a **domain profile** selected by the optional `domain` field and governed by whatever standard the researcher's field has settled on. A validator merges the selected profile's fields onto the generic dataset (defaulting to `default-domain`, currently `neuroimaging`, when `domain` is absent).
+
+Glimmer currently defines only the **`neuroimaging`** profile (standard: BIDS), shown below. The other domains (`behavioral`, `social`, `geological`, `astronomical`, …) are listed in the schema only to illustrate that the dataset type is extensible — their attributes are deliberately left undefined for the researcher to specify against their own domain standard.
 
 Canonical edges:
 - `produced-by` → `method` node (the acquisition method)
@@ -32,8 +34,9 @@ Canonical edges:
 - `conforms-to` → `standard` node (e.g. BIDS spec version)
 - `cited-in` → `publication` node
 
-Example sidecar fields:
+Example sidecar fields (the `neuroimaging` profile; `domain` may be omitted since neuroimaging is the default):
 ```yaml
+domain: neuroimaging
 subject-id: "01"
 modality: anat-T1w
 scanner: "Siemens 3T TimTrio"
@@ -43,6 +46,8 @@ datalad-relative-path: "sub-01/anat/sub-01_ses-test_T1w.nii.gz"
 datalad-commit-sha: "abc123..."
 datalad-annex-key: "MD5E-s12345--..."
 ```
+
+To extend to another domain, add a profile under `dataset.domain-profiles` in `frontmatter.yaml` (e.g. `behavioral:` with its own `required`/`optional` fields) and tag those datasets with the matching `domain`. No validator change is needed — profile merging is generic.
 
 ### `experiment`
 A task or acquisition **paradigm** — the experimental design under which data is acquired — as a first-class node. Distinct from `standard` because a paradigm is an *active design* (conditions, timing, regressors), not a static spec. E.g. an event-related emotional-film design, a reward task, or resting-state.

@@ -11,7 +11,9 @@
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
 #
-# v0.3.1: added the meta-graph social layer — `persona` (a person or role) and
+# v0.3.1: generalized `dataset` beyond neuroimaging — domain-neutral base + a
+# `domain`-selected profile (only `neuroimaging`/BIDS defined; others illustrative).
+# Also added the meta-graph social layer — `persona` (a person or role) and
 # `organization` (institution/lab/funder/journal) node types, plus in-graph
 # attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`,
 # `leads`, `part-of`. The v0.3 `contributed-by` universal edge stays as the
@@ -50,30 +52,55 @@ _universal-edges:
                        #   {type: contributed-by, target: "0000-0002-1825-0097", role: pi, name: "A VanMeter"}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# dataset — BIDS-conformant data (subject, session, scan, or aggregate)
+# dataset — research data of any kind. The generic `dataset` carries only
+# domain-neutral fields; the attributes that are specific to a *kind* of data
+# live in a DOMAIN PROFILE selected by the `domain` field and governed by
+# whatever standard the researcher's field has settled on (BIDS for
+# neuroimaging, e.g. Psych-DS for behavioral, …). A validator merges the
+# matching profile's fields onto the generic dataset.
+#
+# We define ONLY the `neuroimaging` profile here — Glimmer is currently used for
+# neuroimaging data. The other domains (behavioral, social, geological,
+# astronomical, …) are listed to illustrate how the schema extends, NOT to
+# standardize them: their attributes are deliberately left to the researcher to
+# define against their own domain standard.
 # ─────────────────────────────────────────────────────────────────────────────
 dataset:
   inherits: _common
-  required:
-    subject-id:        string                   # the participant identifier
+  default-domain: neuroimaging                  # profile assumed when `domain` is absent
   optional:
-    session:           string                   # optional session label
-    modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
-    acquisition-date:  datetime
-    scanner:           string                   # e.g., "Siemens 3T TimTrio"
-    metrics:           map                      # tool-extracted QC metrics (optional)
-    bids-version:      string                   # e.g., "1.11.1"
-    # DataLad coordinates — required for re-fetch guarantees
-    datalad-superdataset: string                # URL of the superdataset
-    datalad-relative-path: string               # path within the superdataset
-    datalad-commit-sha: string                  # pinned commit of the containing sub-dataset
-    datalad-annex-key: string                   # git-annex content hash, for single files
+    domain:            <enum:{neuroimaging}>     # selects the domain profile below; extensible
+                                                 # to behavioral/social/geological/astronomical/…
+                                                 # (those standards are undefined here, by design)
   edges-allowed:
     - produced-by      # → method (acquisition method)
     - derives-from     # → dataset (parent or source)
     - conforms-to      # → standard
     - cited-in         # → publication
   body-required: false
+  # Domain profiles add required/optional fields on top of the generic dataset,
+  # keyed by `domain`. Only `neuroimaging` is defined; the rest are illustrative
+  # placeholders whose standards the researcher's domain — not Glimmer — sets.
+  domain-profiles:
+    neuroimaging:                                # standard: BIDS
+      required:
+        subject-id:        string               # the participant identifier
+      optional:
+        session:           string               # optional session label
+        modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
+        acquisition-date:  datetime
+        scanner:           string               # e.g., "Siemens 3T TimTrio"
+        metrics:           map                  # tool-extracted QC metrics (optional)
+        bids-version:      string               # e.g., "1.11.1"
+        # DataLad coordinates — required for re-fetch guarantees
+        datalad-superdataset:  string           # URL of the superdataset
+        datalad-relative-path: string           # path within the superdataset
+        datalad-commit-sha:    string           # pinned commit of the containing sub-dataset
+        datalad-annex-key:     string           # git-annex content hash, for single files
+    # behavioral:   # standard set by the researcher (e.g. Psych-DS) — fields undefined here
+    # social:       # standard set by the researcher — fields undefined here
+    # geological:   # standard set by the researcher — fields undefined here
+    # astronomical: # standard set by the researcher — fields undefined here
 
 # ─────────────────────────────────────────────────────────────────────────────
 # method — a named analysis or pipeline (Nipype Workflow, Interface, Node)
