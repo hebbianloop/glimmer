@@ -234,8 +234,9 @@ nodes_index.append({"id": finding_id, "type": "finding", "path": f"findings/{fin
 # 6. Master index
 # ─────────────────────────────────────────────────────────────────────────────
 index = {
-    "schema": "glimmer/v0.2.0",
+    "schema": "glimmer/v0.3.1",
     "dataset-name": "ds000114-nipype-demo",
+    "default-domain": "neuroimaging",   # BIDS profile: subject-id, modality, output-kind, …
     "created": NOW,
     "node-count": len(nodes_index),
     "nodes": nodes_index,

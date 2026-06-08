@@ -8,8 +8,9 @@ This is the canonical Glimmer worked example. It demonstrates how a real reprodu
 - **`workflow.py`** — minimal Nipype anatomical preprocessing workflow: `fsl.BET` (skull strip) → `fsl.FAST` (3-class tissue segmentation). Deterministic with fixed parameters.
 - **`emit_graph.py`** — runs the workflow, captures Nipype's provenance (versions, parameter hashes, output paths), records DataLad commit SHAs and git-annex keys, and emits Glimmer sidecars under `rokb/`.
 - **`verify.py`** — reads the emitted Glimmer graph, re-runs each `method` on its cited `dataset` at the pinned SHA, and compares the new derivative hash against the original. Reports verifiability rate.
-- **`agent.py`** *(optional)* — an LLM agent that reads the graph and emits a `finding` with natural-language interpretation. Its `reasoning-trace` must satisfy the agent protocol.
 - **`rokb/`** — generated Glimmer instance after running the steps above.
+
+> *Planned:* an optional `agent.py` — an LLM agent that reads the graph and emits a `finding` with natural-language interpretation whose `reasoning-trace` satisfies the agent protocol — ships with the reference agent SDK (roadmap v0.5). It is not included in this example yet.
 
 ## What it demonstrates
 
@@ -40,10 +41,10 @@ glimmer validate rokb/
 
 # 5. Verify the trace (re-run the analysis from the graph's pinned SHAs)
 python verify.py
-
-# 6. Optional: have an LLM agent produce an interpreted finding
-OPENROUTER_API_KEY=... python agent.py
 ```
+
+> Step 6 — having an LLM agent read the graph and emit an interpreted `finding`
+> (`OPENROUTER_API_KEY=... python agent.py`) — arrives with the reference agent SDK (roadmap v0.5).
 
 ## Expected output
 
@@ -51,7 +52,7 @@ OPENROUTER_API_KEY=... python agent.py
 
 ## Where this fits in the paper
 
-This example is the empirical core of [the CAISC 2026 Glimmer paper](https://github.com/hebbianloop/caisc2026-glimmer-paper). §4 walks through the exact graph this example produces; §4.5 reports the verifiability rate; §4.7 describes the architectural verifiability protocol that the agent.py finding satisfies.
+This example is the empirical core of [the CAISC 2026 Glimmer paper](https://github.com/hebbianloop/caisc2026-glimmer-paper). §4 walks through the exact graph this example produces; §4.5 reports the verifiability rate; §4.7 describes the architectural verifiability protocol that an agent-produced `finding` must satisfy.
 
 ## Why ds000114
 
