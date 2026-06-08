@@ -2,7 +2,7 @@
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
 
-v0.3.1 adds the meta-graph social layer: `persona` (a person or role) and `organization` (institution/lab/funder/journal) node types, plus the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, and `part-of`. v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node), `concept` (a research question / hypothesis as a first-class node, the unit a research program operates at), and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
+v0.3.1 makes the core schema **domain-neutral**: fields fixed by a domain standard (BIDS modality, fMRI design, Nipype node kind, neuroimaging `output-kind`) move out of the core node types into [domain profiles](#domain-profiles), a curated + local library keyed by `domain`. It also adds the meta-graph social layer: `persona` (a person or role) and `organization` (institution/lab/funder/journal) node types, plus the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, and `part-of`. v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node), `concept` (a research question / hypothesis as a first-class node, the unit a research program operates at), and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
 
 ## Common front-matter (all node types)
 
@@ -18,15 +18,47 @@ edges:                           # outgoing edges; each is {type, target, option
   - {type: <edge-type>, target: <node-id>, ...}
 description: |
   Free-text agent-readable description.
+domain: <profile-name>           # optional; selects this node's domain profile
 ---
 ```
+
+## Domain profiles
+
+The core schema (`frontmatter.yaml`) defines only **domain-neutral** node types. Any field whose vocabulary is fixed by a domain standard — BIDS modalities, fMRI task designs, Nipype node kinds, neuroimaging output kinds — lives in a **domain profile**, not in the core. A profile is a small YAML file that *augments* one or more core node types with extra `required` / `optional` fields. This keeps the core stable while a library of domains grows around it.
+
+**Where profiles live (two tiers).**
+- `glimmer/schema/profiles/<domain>.yaml` — the **curated library**, versioned in this repo. `neuroimaging.yaml` (BIDS) ships today; behavioral (Psych-DS), genomics (GA4GH), etc. are added here over time.
+- `<rokb>/_glimmer-profiles/<domain>.yaml` — a **researcher's own** profile, local to one knowledge base. Drop a file here to model a new kind of data without touching the core schema or the shared library. A local profile shadows a curated one of the same name (the validator warns).
+
+Each profile carries its own metadata (`standard`, `standard-url`, `version`, `status: curated|community|local`) so the library is self-describing and maps onto the cross-institution **schema registry** planned in `docs/roadmap.md` (v0.6). See `glimmer/schema/profiles/_profile.schema.yaml` for the format.
+
+**How a node's profile is resolved (most specific wins):**
+1. the node's own `domain` field, else
+2. the KB-level `default-domain` in `_glimmer-index.json`, else
+3. the core schema's `default-domain` (currently `neuroimaging`).
+
+The validator merges the resolved profile's `augments.<node-type>.required` onto the core requirements for that node. A `domain` naming a profile that can't be found is a non-fatal hint (its domain-specific fields go unchecked) — never a hard error, so a KB can reference a standard Glimmer doesn't ship yet.
+
+**Adding a profile** (e.g. `behavioral`):
+```yaml
+# glimmer/schema/profiles/behavioral.yaml   (curated)  — or
+# mykb/_glimmer-profiles/behavioral.yaml    (local)
+profile: behavioral
+standard: Psych-DS
+status: curated
+augments:
+  dataset:
+    required: {participant-id: string}
+    optional: {n-trials: int, instrument: string}
+  experiment:
+    optional: {response-device: string}
+```
+Then tag a node `domain: behavioral`, or set `default-domain: behavioral` for the whole KB. No validator change is needed — profile merging is generic.
 
 ## Entity types + canonical edges
 
 ### `dataset`
-Research data of any kind. The generic `dataset` is domain-neutral; the attributes specific to a *kind* of data come from a **domain profile** selected by the optional `domain` field and governed by whatever standard the researcher's field has settled on. A validator merges the selected profile's fields onto the generic dataset (defaulting to `default-domain`, currently `neuroimaging`, when `domain` is absent).
-
-Glimmer currently defines only the **`neuroimaging`** profile (standard: BIDS), shown below. The other domains (`behavioral`, `social`, `geological`, `astronomical`, …) are listed in the schema only to illustrate that the dataset type is extensible — their attributes are deliberately left undefined for the researcher to specify against their own domain standard.
+Research data of any kind. The core `dataset` is **domain-neutral** — it carries only identity, generic provenance (`acquisition-date`, `metrics`), and domain-neutral DataLad re-fetch coordinates. The attributes specific to a *kind* of data (participant, session, modality, …) come from the node's **domain profile** — see [Domain profiles](#domain-profiles). For neuroimaging (standard: BIDS) the profile adds the required `subject-id` and optional `session` / `modality` / `scanner` / `bids-version` shown below.
 
 Canonical edges:
 - `produced-by` → `method` node (the acquisition method)
@@ -34,20 +66,19 @@ Canonical edges:
 - `conforms-to` → `standard` node (e.g. BIDS spec version)
 - `cited-in` → `publication` node
 
-Example sidecar fields (the `neuroimaging` profile; `domain` may be omitted since neuroimaging is the default):
+Example sidecar fields (core fields + the `neuroimaging` profile; `domain` may be omitted when the KB's `default-domain` is neuroimaging):
 ```yaml
-domain: neuroimaging
-subject-id: "01"
-modality: anat-T1w
-scanner: "Siemens 3T TimTrio"
-bids-version: "1.11.1"
+# core (domain-neutral)
 datalad-superdataset: "https://github.com/OpenNeuroDatasets/ds000114"
 datalad-relative-path: "sub-01/anat/sub-01_ses-test_T1w.nii.gz"
 datalad-commit-sha: "abc123..."
 datalad-annex-key: "MD5E-s12345--..."
+# neuroimaging profile (BIDS)
+subject-id: "01"
+modality: anat-T1w
+scanner: "Siemens 3T TimTrio"
+bids-version: "1.11.1"
 ```
-
-To extend to another domain, add a profile under `dataset.domain-profiles` in `frontmatter.yaml` (e.g. `behavioral:` with its own `required`/`optional` fields) and tag those datasets with the matching `domain`. No validator change is needed — profile merging is generic.
 
 ### `experiment`
 A task or acquisition **paradigm** — the experimental design under which data is acquired — as a first-class node. Distinct from `standard` because a paradigm is an *active design* (conditions, timing, regressors), not a static spec. E.g. an event-related emotional-film design, a reward task, or resting-state.
@@ -59,12 +90,14 @@ Canonical edges:
 - `conforms-to` → `standard` node
 - `cited-in` → `publication` node
 
-Example sidecar fields:
+Core fields are domain-neutral (`task-name`, `conditions`, `duration-sec`, `n-trials`); the fMRI design vocabulary (`design`, `regressors`, `timing-source`, `stimulus-set`) comes from the neuroimaging profile.
+
+Example sidecar fields (core + neuroimaging profile):
 ```yaml
-task-name: emoFilm
-design: naturalistic
-conditions: [REST, NEU, POS, NEG]
-regressors: ["salience-SRF ⊗ HRF"]
+task-name: emoFilm                 # core
+conditions: [REST, NEU, POS, NEG]  # core
+design: naturalistic               # neuroimaging profile
+regressors: ["salience-SRF ⊗ HRF"] # neuroimaging profile
 timing-source: "code/emofilm-timing"
 stimulus-set: "stimuli/emofilm/*.avi"
 ```
@@ -79,14 +112,14 @@ Canonical edges:
 - `requires-standard` → `standard` node
 - `composes` → `method` (sub-methods for workflow composition)
 
-Example sidecar fields:
+Example sidecar fields (`tool` / `version` / `parameters` are core; `nipype-node-type` comes from the neuroimaging profile):
 ```yaml
 tool: fsl.BET
 version: "fsl-6.0.5"
-nipype-node-type: Node
 parameters: {frac: 0.5, robust: true}
 parameters-hash: "sha256:..."
 workflow-definition-sha: "<git-sha of the .py file>"
+nipype-node-type: Node             # neuroimaging profile
 ```
 
 ### `derivative`
@@ -100,7 +133,8 @@ Canonical edges:
 
 Critical fields:
 - `output-hash` — SHA-256 of the output file content; load-bearing for verifiability
-- `provenance-mode` — `deterministic` (Nipype/FSL deterministic ops), `agent-inferred` (LLM-produced summary), or `stochastic` (e.g., randomized initialization)
+- `provenance-mode` — (core, required) `deterministic` (Nipype/FSL deterministic ops), `agent-inferred` (LLM-produced summary), or `stochastic` (e.g., randomized initialization)
+- `output-kind` — the kind of output (`volume`, `surface`, `timeseries`, `statistical-map`, …); supplied (and required) by the neuroimaging profile, since the taxonomy is domain-specific
 
 ### `finding`
 An interpreted assertion grounded in one or more derivatives. The unit between "the pipeline produced this output" (a derivative) and "we wrote a paper about it" (a publication). EVI-aligned: a finding has interpretation text + evidence pointers + verifiable provenance.

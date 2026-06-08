@@ -23,15 +23,18 @@ def _run(module_relpath, argv):
     runpy.run_path(str(script), run_name="__main__")
 
 
+def _planned(cmd, note):
+    """Honest stub for a documented-but-not-yet-packaged command."""
+    print(f"glimmer {cmd}: not yet available as a packaged command.", file=sys.stderr)
+    print(f"  {note}", file=sys.stderr)
+    sys.exit(2)
+
+
 def cmd_build(args):
     """Build a Glimmer RO-KB from typed source data."""
-    extra = []
-    if args.example:
-        # default builder ships hardcoded for the training-fsqc example
-        extra = []
-    if args.output:
-        extra += ["--output", args.output]
-    _run("build_rokb.py", extra)
+    _planned("build",
+             "Worked examples build with their own emitter — e.g. "
+             "`python examples/ds000114-nipype/emit_graph.py`. A general builder is planned (roadmap v0.4).")
 
 
 def cmd_validate(args):
@@ -41,17 +44,12 @@ def cmd_validate(args):
 
 def cmd_agent(args):
     """Run the reference QC agent over a Glimmer RO-KB."""
-    extra = ["--model", args.model]
-    if args.informed: extra.append("--informed")
-    if args.output: extra += ["--output", args.output]
-    _run("agent.py", extra)
+    _planned("agent", "The reference agent SDK is planned for roadmap v0.5 (see docs/roadmap.md).")
 
 
 def cmd_score(args):
     """Score agent verdicts against human ratings (Cohen's κ matrix)."""
-    extra = ["--verdicts", args.verdicts]
-    if args.fig_out: extra += ["--fig-out", args.fig_out]
-    _run("score.py", extra)
+    _planned("score", "Verdict scoring ships with the agent SDK (roadmap v0.5).")
 
 
 def cmd_figure(args):
@@ -61,16 +59,12 @@ def cmd_figure(args):
 
 def cmd_import_bids(args):
     """Import an existing BIDS dataset into Glimmer (planned for v0.2)."""
-    print("glimmer import-bids: not yet implemented in v0.1", file=sys.stderr)
-    print("Tracked in docs/interop.md. PRs welcome.", file=sys.stderr)
-    sys.exit(2)
+    _planned("import-bids", "Planned for the interop bridge (roadmap v0.2). See docs/interop.md.")
 
 
 def cmd_export_rocrate(args):
     """Export a Glimmer RO-KB as RO-Crate for archival (planned for v0.2)."""
-    print("glimmer export-rocrate: not yet implemented in v0.1", file=sys.stderr)
-    print("Tracked in docs/interop.md. PRs welcome.", file=sys.stderr)
-    sys.exit(2)
+    _planned("export-rocrate", "Planned for the interop bridge (roadmap v0.2). See docs/interop.md.")
 
 
 def cmd_version(args):

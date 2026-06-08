@@ -1,0 +1,44 @@
+# Meta-schema for Glimmer domain profiles.
+#
+# A profile bundles the domain-specific fields the core schema (frontmatter.yaml)
+# deliberately omits, so the core stays domain-neutral and the library of domains
+# can grow independently. Profiles are discovered from two places:
+#   glimmer/schema/profiles/<domain>.yaml   — the curated, in-repo library
+#   <rokb>/_glimmer-profiles/<domain>.yaml  — a researcher's own, local to one KB
+# A local profile of the same name shadows the curated one (the validator warns).
+#
+# A profile file MUST define:
+#   profile:   string  — the domain name (kebab-case, unique). Matches a node's
+#                        `domain` field and/or the KB `default-domain`.
+#   augments:  map     — per-node-type field additions (see below).
+#
+# and SHOULD define:
+#   standard:     string  — the domain standard this profile encodes (e.g. BIDS)
+#   standard-url: string  — link to that standard
+#   version:      string  — this profile's own version (independent of schema-version)
+#   status:       <enum:{curated,community,local}>
+#                           curated   = maintained in this repo's profiles/
+#                           community = published via the schema registry (roadmap v0.6)
+#                           local     = lives in a single KB's _glimmer-profiles/
+#   description:  string
+#
+# `augments` maps a CORE node type to extra fields merged onto that type:
+#   augments:
+#     <node-type>:
+#       required: { field: type-spec, … }   # enforced for nodes resolving to this domain
+#       optional: { field: type-spec, … }   # documented; not presence-enforced (matches core)
+#
+# Constraints:
+#   - a profile may only augment node types already defined in frontmatter.yaml;
+#     it cannot introduce new node types or new edge types (those are core changes).
+#   - augmented field names should not collide with core field names for that type.
+
+required:
+  profile:  string
+  augments: map
+optional:
+  standard:     string
+  standard-url: string
+  version:      string
+  status:       <enum:{curated,community,local}>
+  description:  string
