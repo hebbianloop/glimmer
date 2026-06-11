@@ -29,7 +29,7 @@
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.3.1"
+schema-version: "0.4.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
@@ -52,7 +52,7 @@ default-domain: neuroimaging
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -71,6 +71,11 @@ _universal-edges:
   - contributed-by     # → contributor id (ORCID URI / email / kebab); OUT-OF-GRAPH target.
                        #   role + identity carried as edge metadata, e.g.:
                        #   {type: contributed-by, target: "0000-0002-1825-0097", role: pi, name: "A VanMeter"}
+  - in-program         # → program (this node is a member of a program/study); IN-GRAPH target.
+                       #   e.g. {type: in-program, target: program-clad}
+  - cross-project      # → a node in ANOTHER project's graph, by namespaced id; OUT-OF-GRAPH target.
+                       #   carries inter-project claims + parent-canonical references across graphs, e.g.:
+                       #   {type: cross-project, target: "ads-glimmer:concept-striatum-parcellation", role: inherited-from-parent}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # dataset — research data of any kind. Domain-NEUTRAL: it carries only identity,
@@ -313,6 +318,35 @@ organization:
     upstream-url:      string
   edges-allowed:
     - part-of           # → organization (lab within a department within a university)
+  body-required: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# program — a research study, cohort, or initiative as a first-class node: the
+# CONTAINER that organizes datasets, experiments, concepts, and publications around
+# one research mission. A program may nest inside a parent program via `part-of`
+# (e.g. the CLAD subproject is part-of the ADS study). Any node declares membership
+# with the universal `in-program` edge; relationships to nodes in ANOTHER program's
+# graph use the universal `cross-project` edge (out-of-graph, namespaced target).
+# Distinct from `organization` (the institution running it) and `concept` (a
+# question it investigates).
+# ─────────────────────────────────────────────────────────────────────────────
+program:
+  inherits: _common
+  required:
+    program-kind:      <enum:{study,cohort,subproject,initiative,consortium}>
+  optional:
+    status:            <enum:{active,completed,paused,archived}>
+    start-date:        date
+    end-date:          date
+    outcome-measure:   string                   # the program's primary outcome(s), free text
+  edges-allowed:
+    - part-of             # → program (subproject nesting within a parent program, same graph)
+    - led-by              # → persona (PI / study director)
+    - funded-by           # → organization
+    - includes-dataset    # → dataset
+    - includes-experiment # → experiment
+    - addresses-concept   # → concept
+    - cited-in            # → publication
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
