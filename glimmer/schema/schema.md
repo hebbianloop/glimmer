@@ -226,6 +226,47 @@ Canonical edges:
 Required fields:
 - `org-kind` — one of `institution`, `lab`, `consortium`, `department`, `journal`, `funder`, `other`
 
+### `program`
+A research **study, cohort, or initiative** as a first-class node — the *container* that organizes datasets, experiments, concepts, and publications around one research mission. A program may nest inside a parent program via `part-of` (a **subproject** relationship), so multi-study programs form a hierarchy. Distinct from `organization` (the institution that runs it) and `concept` (a question it investigates).
+
+Any node declares membership in a program with the universal [`in-program`](#in-program) edge. Relationships to nodes that live in **another program's graph** use the universal [`cross-project`](#cross-project) edge (out-of-graph, namespaced target) — this is how a subproject inherits a canonical node from its parent, or how a harmonizing analysis connects to both graphs.
+
+Canonical edges:
+- `part-of` → `program` (subproject nesting within a parent program, **same graph**)
+- `led-by` → `persona` (PI / study director)
+- `funded-by` → `organization`
+- `includes-dataset` → `dataset`, `includes-experiment` → `experiment`
+- `addresses-concept` → `concept`, `cited-in` → `publication`
+
+Required fields:
+- `program-kind` — one of `study`, `cohort`, `subproject`, `initiative`, `consortium`
+
+Worked example — the **CLAD** subproject is part of the **ADS** study (separate graphs), and a node it inherits from the parent points back to the ADS-canonical id:
+
+```yaml
+# in clad-glimmer:
+---
+id: program-clad
+type: program
+program-kind: subproject
+name: "Community Life & Adolescent Development (CLAD)"
+edges:
+  - {type: cross-project, target: "ads-glimmer:program-ads", role: subproject-of-parent}
+  - {type: led-by, target: persona-shady-el-damaty}
+  - {type: funded-by, target: org-nij}
+---
+# an inherited node, canonical in the parent ADS graph:
+---
+id: org-nij
+type: organization
+org-kind: funder
+name: "National Institute of Justice"
+edges:
+  - {type: in-program, target: program-clad}
+  - {type: cross-project, target: "ads-glimmer:org-nij", role: inherited-from-parent}
+---
+```
+
 ## Cross-cutting edges (`_universal-edges`)
 
 Some edges are allowed from **any** node type; the validator unions these in regardless of the source node's `edges-allowed`.
@@ -240,6 +281,25 @@ edges:
 ```
 
 Suggested roles: `pi`, `scanned`, `qc`, `coded`, `analyzed`, `drafted`, `funded`. The **who-did-what attribution layer** is derived by aggregating `contributed-by` edges across the whole graph (group by target). Because the target is out-of-graph, the validator does not require it to appear in the index.
+
+### `in-program`
+Membership: this node belongs to a `program`. The target is a **program node in this graph** (in-graph, validated against the index). Aggregating `in-program` edges yields the membership roster of a study/cohort/subproject.
+
+```yaml
+edges:
+  - {type: in-program, target: program-clad}
+```
+
+### `cross-project`
+A relationship to a node in **another project's Glimmer graph**, addressed by a **namespaced id** `<graph>:<node-id>` (e.g. `ads-glimmer:concept-striatum-parcellation`). The target is **out-of-graph** — like `contributed-by`, the validator does **not** require it to appear in the local index — so it carries inter-project claims and parent-canonical references across graph boundaries without a federated index. Use it to (a) declare a subproject's link to its parent program, (b) point an inherited copy at the parent-canonical node, or (c) connect a harmonizing analysis/claim/experiment to the sibling project.
+
+```yaml
+edges:
+  - {type: cross-project, target: "ads-glimmer:concept-striatum-parcellation", role: harmonizes-with}
+  - {type: cross-project, target: "ads-glimmer:org-nij", role: inherited-from-parent}
+```
+
+Convention: resolve duplicated nodes to the **parent** project (it owns the canonical node); a subproject keeps an inherited copy that points back with `role: inherited-from-parent`. Cross-graph resolution is by namespace; a future federated index (roadmap v0.6) may validate these targets.
 
 ## Index file (`_glimmer-index.json`)
 
@@ -288,3 +348,15 @@ above; this section records only the v0.3 deltas to the data-layer types:
   adds `depends-on-method` → `method` and `co-acquired-with` → `experiment`/`dataset` edges.
 - `publication` may carry `addresses-concept` → `concept` and `authored-by` →
   `persona` edges (scout-emitted literature).
+
+## Project / subproject layer (v0.4)
+
+v0.4 adds the `program` node type (a study / cohort / subproject container) and two
+universal edges, making multi-study programs and cross-graph relationships first-class:
+
+- `program` nests via `part-of` → `program` (a **subproject** of a parent study, same graph).
+- `in-program` (universal, in-graph) — any node declares membership in a `program`.
+- `cross-project` (universal, **out-of-graph**) — a relationship to a node in another
+  project's graph by namespaced id (`<graph>:<node-id>`); carries inter-project claims and
+  parent-canonical (inherited-copy) references. Added to the validator's out-of-graph
+  allowlist alongside `contributed-by`. Backward-compatible; existing sidecars stay valid.

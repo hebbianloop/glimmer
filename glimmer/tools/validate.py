@@ -22,7 +22,7 @@ LOCAL_PROFILES_DIRNAME = "_glimmer-profiles"        # researcher profiles, local
 # IDs are kebab-style but allow uppercase letters and dots — needed for BIDS-canonical
 # tokens like `T1w`, `T2w`, version strings like `1.11.1`, and similar domain conventions.
 NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
-OUT_OF_GRAPH_EDGES = {"contributed-by"}  # target is an out-of-graph identifier (ORCID/email), not a node
+OUT_OF_GRAPH_EDGES = {"contributed-by", "cross-project"}  # target is out-of-graph: an identifier (ORCID/email) or a node in another project's graph (namespaced id), not a node in this index
 
 
 class _StrictLoader(yaml.SafeLoader):
