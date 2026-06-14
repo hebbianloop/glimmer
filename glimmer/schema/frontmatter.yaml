@@ -29,7 +29,7 @@
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.4.0"
+schema-version: "0.5.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
@@ -52,7 +52,7 @@ default-domain: neuroimaging
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program,instrument}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -99,6 +99,8 @@ dataset:
     - derives-from     # → dataset (parent or source)
     - conforms-to      # → standard
     - cited-in         # → publication
+    - acquired-with    # → instrument (device/measure the data was acquired with)
+    - described-by     # → experiment (the paradigm this data realizes)
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -200,6 +202,7 @@ experiment:
     - tests-hypothesis   # → concept (the paradigm is designed to test this hypothesis)
     - conforms-to        # → standard
     - cited-in           # → publication
+    - acquired-with      # → instrument (the device/software the paradigm is delivered/acquired with)
     - depends-on-method  # → method (research-program layer)
     - co-acquired-with   # → experiment/dataset (acquired in the same session)
   body-required: true
@@ -318,6 +321,25 @@ organization:
     upstream-url:      string
   edges-allowed:
     - part-of           # → organization (lab within a department within a university)
+  body-required: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# instrument — a data-acquisition instrument: a scanner, a behavioral task/paradigm
+# delivery system, a questionnaire/survey, an assay, or a device. The thing data is
+# `acquired-with`. Domain-neutral core: a `dataset`/`experiment` points at it via the
+# `acquired-with` edge; domain-specific instrument vocabulary (admin method, items,
+# timing, …) and instrument→X edges (e.g. populates-schema) come from a domain profile.
+# ─────────────────────────────────────────────────────────────────────────────
+instrument:
+  inherits: _common
+  optional:
+    instrument-kind:   <enum:{scanner,task,questionnaire,assay,device,software,other}>
+    version:           string
+    upstream-url:      string
+  edges-allowed:
+    - part-of           # → instrument (a sub-instrument / module of a battery)
+    - conforms-to       # → standard
+    - cited-in          # → publication
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────

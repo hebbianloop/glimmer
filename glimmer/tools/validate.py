@@ -151,6 +151,13 @@ def validate(rokb_path: Path, schema: dict):
                         f"(curated or local); domain-specific fields go unchecked. "
                         f"{_profile_hint(kb_default_domain)}")
 
+    # v0.5: profiles may declare domain `node-types` + `edge-types` (not just augment fields).
+    # Collect the KB-default-domain profile's extras; per-node `domain` profiles add their own below.
+    def _profile_extras(p):
+        p = p or {}
+        return set(p.get("node-types") or []), set(p.get("edge-types") or [])
+    kb_extra_types, kb_extra_edges = _profile_extras(profiles.get(kb_default_domain))
+
     # 2. Walk sidecars on disk
     sidecar_paths = list(rokb_path.glob("**/*.md")) + list(rokb_path.glob("**/*.json"))
     sidecar_paths = [p for p in sidecar_paths if p.name != "_glimmer-index.json"]
@@ -176,22 +183,24 @@ def validate(rokb_path: Path, schema: dict):
         on_disk_ids.add(node_id)
         sidecar_by_id[node_id] = (path, fm, body)
 
-        # 3. Check node type
+        # 3. Check node type — core OR a profile-declared domain node-type (v0.5).
         if not node_type:
             errors.append(f"{path}: missing required field `type`"); continue
-        if node_type not in schema or node_type.startswith("_"):
-            errors.append(f"{path}: unknown node type `{node_type}`"); continue
-
-        type_def = schema[node_type]
-        required = {**schema["_common"]["required"], **type_def.get("required", {})}
-        edges_allowed = set(type_def.get("edges-allowed", [])) | set(schema.get("_universal-edges", []))
-
-        # Domain profile: resolve this node's domain (its `domain` field, else the
-        # KB default) and merge the profile's `augments` for this node type onto
-        # the core requirements. An explicit `domain` naming an unknown profile is
-        # a hint, not an error — the researcher's standard may not be defined yet.
+        # Resolve this node's domain (its `domain` field, else the KB default) + that
+        # profile's declared node-types / edge-types, unioned with the KB-default extras.
         domain = fm.get("domain") or kb_default_domain
         node_domain_profile = profiles.get(domain) if domain else None
+        n_types, n_edges = _profile_extras(node_domain_profile)
+        valid_types = kb_extra_types | n_types
+        if (node_type not in schema or node_type.startswith("_")) and node_type not in valid_types:
+            errors.append(f"{path}: unknown node type `{node_type}`"); continue
+
+        type_def = schema.get(node_type) or {}      # {} for a profile-declared type (no core def)
+        required = {**schema["_common"]["required"], **type_def.get("required", {})}
+        edges_allowed = (set(type_def.get("edges-allowed", [])) | set(schema.get("_universal-edges", []))
+                         | kb_extra_edges | n_edges)
+
+        # Domain profile augments: merge its `augments` required fields onto core requirements.
         if node_domain_profile:
             aug = (node_domain_profile.get("augments") or {}).get(node_type) or {}
             required = {**required, **(aug.get("required") or {})}

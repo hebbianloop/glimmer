@@ -1,6 +1,8 @@
-# Glimmer Schema (v0.3)
+# Glimmer Schema (v0.5)
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
+
+v0.5 adds the [`instrument`](#instrument) node type (a survey, task, assay, scanner, or device used to *generate* data — the measurement apparatus, distinct from the `dataset` it produces or the `experiment` it delivers), promoted to core because every empirical domain has measurement instruments. With it: two core edges — [`acquired-with`](#acquired-with) (a dataset/experiment → the instrument that produced it) and [`described-by`](#described-by) (a dataset → the experiment/paradigm that describes it). v0.5 also lets a **domain profile declare its own vocabulary** — `node-types:` and `edge-types:` lists — so a domain can add types/edges without touching the core (promote to core once ≥2 domains need it); see [Domain profiles](#domain-profiles). v0.4 adds the [`program`](#program) node type (a study/cohort/initiative as a first-class container) with the universal [`in-program`](#in-program) (same-graph membership) and [`cross-project`](#cross-project) (out-of-graph, namespaced inter-project) edges.
 
 v0.3.1 makes the core schema **domain-neutral**: fields fixed by a domain standard (BIDS modality, fMRI design, Nipype node kind, neuroimaging `output-kind`) move out of the core node types into [domain profiles](#domain-profiles), a curated + local library keyed by `domain`. It also adds the meta-graph social layer: `persona` (a person or role) and `organization` (institution/lab/funder/journal) node types, plus the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, and `part-of`. v0.3 adds `experiment` (a task/acquisition paradigm as a first-class node), `concept` (a research question / hypothesis as a first-class node, the unit a research program operates at), and `contributed-by` (a universal attribution edge with out-of-graph contributor targets). v0.2 changes from v0.1: dropped `qc-artifact` and `rater` entity types (over-indexed on QC as the canonical example). Added `finding` between `derivative` and `publication`. Agent identity is now a string field on `finding` and `derivative`, not a separate node type.
 
@@ -55,14 +57,23 @@ augments:
 ```
 Then tag a node `domain: behavioral`, or set `default-domain: behavioral` for the whole KB. No validator change is needed — profile merging is generic.
 
+**Profile-declared vocabulary (v0.5).** Beyond augmenting fields, a profile MAY declare domain-specific **node types** and **edge types** the core schema omits:
+```yaml
+node-types: [cohort-survey]                       # extra node types valid when this domain is active
+edge-types: [populates-schema, feeds-instrument]  # extra edges valid (from any node) when this domain is active
+```
+The validator accepts a node whose `type` is a core type **or** a `node-types` entry from the active profile, and an edge whose type is core/universal **or** an `edge-types` entry from the active profile. Edge *targets* still must resolve in the local index (unless out-of-graph like `contributed-by` / `cross-project`). This lets a domain model its own provenance relations without forking the core — and the rule is "promote a node-type/edge-type to **core** once ≥2 domains need it; keep domain-specific vocabulary in the profile." The shipped `neuroimaging` profile uses this to declare ~21 study-provenance edges (`populates-schema`, `uses-method`, `delivers-task`, `feeds-instrument`, …).
+
 ## Entity types + canonical edges
 
 ### `dataset`
-Research data of any kind. The core `dataset` is **domain-neutral** — it carries only identity, generic provenance (`acquisition-date`, `metrics`), and domain-neutral DataLad re-fetch coordinates. The attributes specific to a *kind* of data (participant, session, modality, …) come from the node's **domain profile** — see [Domain profiles](#domain-profiles). For neuroimaging (standard: BIDS) the profile adds the required `subject-id` and optional `session` / `modality` / `scanner` / `bids-version` shown below.
+Research data of any kind. The core `dataset` is **domain-neutral** — it carries only identity, generic provenance (`acquisition-date`, `metrics`), and domain-neutral DataLad re-fetch coordinates. The attributes specific to a *kind* of data (participant, session, modality, …) come from the node's **domain profile** — see [Domain profiles](#domain-profiles). For neuroimaging (standard: BIDS) the profile adds optional `subject-id` / `session` / `modality` / `scanner` / `bids-version` shown below. (Through v0.4 the neuroimaging profile *required* `subject-id`; v0.5 makes it optional so cohort-level, schema, and archive datasets — which have no single participant — validate without a placeholder.)
 
 Canonical edges:
 - `produced-by` → `method` node (the acquisition method)
 - `derives-from` → upstream `dataset` node
+- `acquired-with` → `instrument` node (the apparatus that generated the data) — core, v0.5
+- `described-by` → `experiment` node (the paradigm the data was acquired under) — core, v0.5
 - `conforms-to` → `standard` node (e.g. BIDS spec version)
 - `cited-in` → `publication` node
 
@@ -79,6 +90,12 @@ modality: anat-T1w
 scanner: "Siemens 3T TimTrio"
 bids-version: "1.11.1"
 ```
+
+### `acquired-with`
+Core provenance edge (v0.5): a `dataset` or `experiment` → the [`instrument`](#instrument) that **generated** the data (scanner, task, questionnaire, assay). Separates *what produced the measurement* (instrument) from *what processed it* (`produced-by` → method) and *the design it was collected under* (`described-by` → experiment). Target resolves in the local index.
+
+### `described-by`
+Core edge (v0.5): a `dataset` → the [`experiment`](#experiment) (paradigm) it was acquired under — the inverse direction of `experiment → realized-by → dataset`, available when the dataset is the natural anchor. Target resolves in the local index.
 
 ### `experiment`
 A task or acquisition **paradigm** — the experimental design under which data is acquired — as a first-class node. Distinct from `standard` because a paradigm is an *active design* (conditions, timing, regressors), not a static spec. E.g. an event-related emotional-film design, a reward task, or resting-state.
@@ -100,6 +117,29 @@ design: naturalistic               # neuroimaging profile
 regressors: ["salience-SRF ⊗ HRF"] # neuroimaging profile
 timing-source: "code/emofilm-timing"
 stimulus-set: "stimuli/emofilm/*.avi"
+```
+
+### `instrument`
+A **measurement apparatus** used to *generate* data: a survey/questionnaire, a behavioral or cognitive task, a biological assay, a scanner, a device, or a piece of acquisition software. Distinct from `dataset` (the data the instrument produces), from `experiment` (the *paradigm* under which an instrument is administered), and from `method` (analysis applied *after* acquisition). Promoted to core in v0.5 because every empirical domain has instruments. A research **battery** is modeled as a parent `instrument` with member instruments pointing at it via `part-of`.
+
+Core fields: `instrument-kind` (one of `scanner`, `task`, `questionnaire`, `assay`, `device`, `software`, `other`), `version`, `upstream-url`. Domain profiles augment with their own fields — the `neuroimaging` profile adds `modality`, `admin` (administration method), `waves`, `timing`, `reference` (instrument citation), `items` (pointer to the actual questionnaire/items + scoring), `doc`.
+
+Canonical edges:
+- `part-of` → `instrument` (battery membership) or `program`
+- `conforms-to` → `standard` node
+- `cited-in` → `publication` node
+
+A dataset or experiment points back at the instrument that produced it with the core [`acquired-with`](#acquired-with) edge. Body is required (describe what the instrument measures and how it is scored).
+
+Example sidecar fields (core + neuroimaging profile):
+```yaml
+instrument-kind: questionnaire      # core
+version: "DUSI-R"                   # core
+upstream-url: "https://..."         # core
+admin: ACASI                        # neuroimaging profile
+waves: "W1-3"                       # neuroimaging profile
+reference: "Tarter 1990"            # neuroimaging profile
+items: "Box: DUSI/ (scoring.txt)"   # neuroimaging profile
 ```
 
 ### `method`
