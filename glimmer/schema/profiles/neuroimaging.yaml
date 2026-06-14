@@ -16,13 +16,19 @@ description: >
 
 augments:
   dataset:
-    required:
-      subject-id:        string                 # the participant identifier
     optional:
+      subject-id:        string                 # participant id (single-subject datasets; omitted for cohort/schema/archive datasets)
       session:           string                 # scan session label
-      modality:          <enum:{anat-T1w,anat-T2w,bold,dwi,asl,meg,eeg,multi}>
+      modality:          string                 # BIDS-ish modality OR a freeform path (e.g. func/connectome, anat/recon)
       scanner:           string                 # e.g., "Siemens 3T TimTrio"
       bids-version:      string                 # e.g., "1.11.1"
+      counts:            string                 # per-wave subject/run counts (provenance note)
+      cohort-n:          int                    # cohort size for cohort datasets
+      confirmed:         string                 # how the inventory was confirmed
+      location:          string                 # archive path (Box / annex relative path)
+      access:            string                 # OPEN / controlled / PHI
+      status:            string                 # e.g. acquired-not-pulled
+      contributor:       string                 # sub-study owner, if applicable
 
   experiment:
     optional:
@@ -34,9 +40,59 @@ augments:
   method:
     optional:
       nipype-node-type:  <enum:{Interface,Node,MapNode,Workflow,JoinNode}>
+      tool:              string                 # software/tool (also used freeform here)
+      version:           string
+
+  instrument:
+    optional:
+      modality:          string                 # behavioral/survey, scanner, etc.
+      admin:             string                 # administration method (ACASI / CAPI / E-Prime / CANTAB / Manual)
+      waves:             string                 # waves administered (e.g. W1-3)
+      timing:            string                 # approx duration / visit order
+      reference:         string                 # instrument citation
+      items:             string                 # pointer to the actual questionnaire/items + scoring (Box)
+      doc:               string                 # instrument-matrix / documentation ref
 
   derivative:
-    required:
-      # the kind of neuroimaging output; required for neuroimaging derivatives
-      # (other domains define their own output taxonomy, or none).
+    optional:
+      # the kind of neuroimaging output (other domains define their own taxonomy, or none).
       output-kind:       <enum:{volume,surface,timeseries,statistical-map,table,figure,other}>
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.5: domain edge-types this profile makes valid (from any node type when the
+# neuroimaging domain is active). Kept here, not in core, because they encode
+# neuroimaging-study provenance relations beyond the domain-neutral core set.
+# (`acquired-with` + `described-by` graduated to CORE — every empirical study has them.)
+# ─────────────────────────────────────────────────────────────────────────────
+edge-types:
+  - populates-schema      # instrument → dataset/schema it fills
+  - uses-method           # node → method it applies
+  - uses-dataset          # node → dataset it consumes
+  - uses-standard         # node → standard/atlas it uses
+  - describes-method      # publication/doc → method
+  - validates-method      # experiment/derivative → method it validates
+  - delivers-task         # instrument → experiment it delivers
+  - feeds-instrument      # node → instrument
+  - comprises             # node → constituent node
+  - subset-of             # dataset → dataset (cohort subset)
+  - used-by               # node → node that uses it
+  - result-of             # dataset/derivative → method/experiment
+  - outcome-for           # dataset → concept/experiment (outcome measure)
+  - supports-experiment   # node → experiment
+  - describes-quality-of  # qc/derivative → dataset
+  - constrained-by        # node → standard/method constraint
+  - bridges               # node → node (cross-modal/space bridge)
+  - executes              # method/instrument → experiment/method
+  - relates-to            # generic association (use sparingly)
+  - extends               # node → node it extends
+  - supported-by          # node → supporting evidence/node
+  # broadened source types for edges that exist in core but only for some node types —
+  # a method/experiment/derivative/dataset legitimately carries these in study graphs:
+  - addresses-concept     # any node → the research question (concept) it addresses
+  - validates-against     # benchmark experiment/method → reference method/standard/pub
+  - funded-by             # study artifact (incl. dataset) → funder org
+  # domain-neutral lifecycle/lineage edges (candidates for CORE promotion):
+  - based-on              # method → the publication/method an algorithm derives from
+  - superseded-by         # node → the node that replaces it (e.g. modernized recon)
+
+# node-types: []   # none added here — `instrument` graduated to CORE in v0.5.
