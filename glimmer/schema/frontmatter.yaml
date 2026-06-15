@@ -29,7 +29,7 @@
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
 
-schema-version: "0.5.0"
+schema-version: "0.5.1"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
@@ -94,6 +94,11 @@ dataset:
     datalad-relative-path: string               # path within the superdataset
     datalad-commit-sha:    string               # pinned commit of the containing sub-dataset
     datalad-annex-key:     string               # git-annex content hash, for single files
+    # Data availability (v0.5.1) — "can I pull this, and from where?" Queryable provenance + liveness.
+    data-remote:       [list-of-strings]         # git-annex special remote(s) / DataLad sibling(s) holding the bytes (e.g. hetzner-storagebox, box-neuroyouths, clad-master, ads-glimmer-annex)
+    data-provenance:   string                   # where the bytes came from / how produced (acquisition, pipeline, recovery source)
+    data-last-commit:  string                   # last commit (sha and/or date) touching this dataset's content
+    data-liveness:     string                   # last reachability/liveness check, e.g. "2026-06-15: reachable" / "offline (needs VPN)" — lets a query decide whether it can be pulled
   edges-allowed:
     - produced-by      # → method (acquisition method)
     - derives-from     # → dataset (parent or source)
