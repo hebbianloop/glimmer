@@ -1,0 +1,322 @@
+\documentclass[preprint]{glimmer-paper}
+
+\title{Proactive Provenance: Making the Research-Object Graph Executable\\ for AI-Native Reproducibility}
+\author{Shady El Damaty}
+\affil{Holonym / Opscientia}
+\version{0.6.0}
+\repo{https://github.com/hebbianloop/glimmer}
+\date{2026}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Reproducible-pipeline tooling (BIDS, DataLad, Nipype, containers) made the \emph{bytes} of
+a computational analysis recoverable, and provenance standards (W3C PROV, RO-Crate, CWL)
+made its \emph{structure} describable. Yet ``this result reproduces'' remains a claim a
+reader must take on trust: the description of a run and the act of re-running it are
+separate artifacts, and nothing in the typed record forces them to agree. The gap widens
+under AI-native workflows, where an autonomous agent re-derives the same numbers
+inconsistently, repeats settled data-processing errors, and loses prior findings across
+sessions --- each a reproducibility failure, because the agent has no executable contract
+to anchor to. We introduce \emph{proactive provenance}: a typed research-object graph whose
+runs are first-class, \textbf{executable, standard-gated, and self-verifying} nodes. We add
+to Glimmer --- a per-entity-sidecar research-object knowledge base --- a single core node
+type, the \code{run-record} (one concrete, replayable invocation, in the sense of a PROV
+\emph{Activity}), and a node runner (\code{glimmer run} / \code{glimmer rerun}) that, for
+each run-record: gates its inputs (they must be both content-pinned \emph{and} valid against
+their declared standards, with validation delegated to standard-specific validators),
+replays the recorded command in a pinned container, and verifies the outputs at one of three
+fidelity tiers --- \emph{byte-identical} (with header normalization), \emph{numeric-within-tolerance}
+(re-deriving a reported number from source), and \emph{structural} (for agent/LLM outputs).
+The run-record is the executable unit of the agentic research loop: a hypothesis decomposes
+into planned runs, running them emits derivatives and findings with recorded verdicts, and
+those verdicts --- not memory --- are what the next planning step reads. We describe the
+design, a reference implementation, and a worked example exercising all three tiers, the
+standards gate, and runtime-certified method equivalence with no specialized dependencies.
+\end{abstract}
+
+\section{Introduction}
+
+The 2010s solved a narrow version of reproducibility: with versioned data
+(DataLad / git-annex \citep{halchenko2021datalad}), versioned code, and pinned environments
+(containers), the \emph{bytes} an analysis consumed and produced can be recovered later. The
+2020s added a \emph{description} layer --- W3C PROV activities \citep{provdm2013}, RO-Crate
+manifests \citep{soilandreyes2022rocrate}, CWL tool/workflow descriptions
+\citep{crusoe2022cwl} --- so the \emph{structure} of a computation is machine-readable.
+Glimmer's prior contribution \citep{eldamaty2026glimmer} sat above both: a typed-entity
+graph (datasets, methods, derivatives, findings, standards, publications, concepts)
+distributed across per-entity sidecars, so an agent could \emph{navigate} provenance and
+render auditable decisions.
+
+But all of this is \textbf{descriptive}. A \code{derivative} node records an
+\code{output-hash}; a \code{method} records a tool version and a workflow SHA; PROV records
+that activity $A$ used entity $E$ and generated entity $O$. None of it re-runs $A$ and checks
+that $O$ still results. The description of the run and the run itself are different objects,
+maintained by hand, and free to drift.
+
+AI-native workflows make the gap acute. An autonomous or semi-autonomous agent operating
+over a dataset, with no executable contract to anchor to, exhibits a characteristic failure
+pattern: it re-derives the same quantity by different routes and gets different answers,
+repeats data-processing mistakes that were already diagnosed, and forgets findings
+established earlier in the same project. Each is a reproducibility failure, and each is a
+direct consequence of the substrate being a \emph{ledger of claims} rather than a \emph{set
+of runnable, self-checking contracts}.
+
+\paragraph{Thesis.} Reproducibility should be an \emph{executable property of the graph}, not
+a property of a separate pipeline a reader is invited to trust. We call this \textbf{proactive
+provenance}: the research-object graph not only records what an output is, but can re-run the
+act that produced it and verify the result --- at a fidelity appropriate to the
+computation's nature. We realize it with one new node type and one tool, and argue this is
+the missing primitive that makes the agentic research loop self-sustaining.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+\item The \code{run-record} node type: a first-class, lifecycle-bearing PROV \emph{Activity}
+  that binds a method, pinned and standard-validated inputs, expected outputs, the exact
+  command, and a pinned environment --- the executable unit of the agentic loop
+  (\S\ref{sec:runrecord}, \S\ref{sec:loop}).
+\item A node runner with a pre-run \textbf{standards gate} and \textbf{three verification
+  tiers}, including a faithful byte-identical tier that normalizes non-semantic header bytes
+  (\S\ref{sec:runrecord}).
+\item \textbf{Standards as a runtime gate}: the run-record \emph{references} the standards
+  its inputs must satisfy; the runner \emph{enforces}; validators are \emph{delegated}
+  (\S\ref{sec:gate}).
+\item \textbf{Runtime-certified method equivalence}: two implementations are
+  \code{equivalent-to} only if the runner confirms they produce matching outputs on shared
+  inputs (\S\ref{sec:registry}).
+\item A reference implementation and a dependency-light worked example demonstrating all of
+  the above (\S\ref{sec:impl}).
+\end{enumerate}
+
+\section{Background and related work}
+
+\paragraph{Reproducible pipelines.} BIDS \citep{gorgolewski2016bids} standardizes
+neuroimaging data layout; DataLad/git-annex \citep{halchenko2021datalad} version data and
+pin content by hash; Nipype \citep{gorgolewski2011nipype} and container images (e.g.
+fMRIPrep \citep{esteban2019fmriprep}) pin the toolchain. These guarantee \emph{re-fetch} and
+\emph{re-execution capability} but not \emph{verification}: nothing asserts that
+re-execution reproduces the recorded result. Glimmer reuses this layer wholesale --- DataLad
+coordinates live on every node --- and adds the act of checking.
+
+\paragraph{Provenance description.} W3C PROV \citep{provdm2013} models
+entities/activities/agents; RO-Crate \citep{soilandreyes2022rocrate} packages a dataset with
+typed metadata; CWL and \code{cwlprov} \citep{crusoe2022cwl} describe and record runs. The
+\code{run-record} is deliberately PROV-shaped (an Activity that \code{consumes} entities and
+\code{regenerates} derivatives), but it is \emph{executable in place}: the same node a reader
+inspects is the node the runner replays and stamps with a verdict. The contribution is not a
+new description format but closing the loop between description and execution inside one
+typed object.
+
+\paragraph{Workflow re-execution.} \code{datalad run} / \code{datalad containers-run} record
+a command with its inputs/outputs and can re-run it; CI harnesses re-execute pipelines. The
+node runner builds directly on \code{datalad containers-run} for replay. What Glimmer adds is
+(a)~re-execution as a \emph{graph operation} over typed nodes rather than a shell convention,
+(b)~a \emph{standards gate} before execution, and (c)~\emph{tiered} verification spanning
+deterministic, stochastic, and agent-produced outputs --- not only byte-equality.
+
+\paragraph{AI-for-science systems.} End-to-end autoresearch systems
+\citep{lu2024aiscientist} run fixed internal pipelines. Glimmer is complementary substrate:
+the run-record gives such systems a typed, replayable, verifiable unit of work that survives
+independently of any one system, so multiple agents can cooperate on, and audit, the same
+graph.
+
+\section{The Glimmer graph (recap)}
+
+Glimmer represents a research project as a graph of typed nodes, each a Markdown file with
+YAML front-matter (a ``sidecar''), enumerated by a root index. Core node types include
+\code{dataset}, \code{method}, \code{derivative}, \code{finding}, \code{standard},
+\code{publication}, \code{concept}, \code{experiment}, \code{instrument}, \code{persona},
+\code{organization}, and \code{program}; edges are properties on the source node.
+Domain-specific vocabulary lives in \emph{profiles} (e.g. neuroimaging/BIDS) that augment
+core types without forking the core. Every node carries a content hash and its DataLad
+re-fetch coordinates; an agent that produces a node must attach a \code{reasoning-trace}
+citing the nodes it read. The graph is plain files, so it survives \code{git clone},
+\code{datalad export}, and \code{rsync} with no bespoke database. This much was descriptive;
+the next section makes it executable.
+
+\section{Proactive provenance: the \texttt{run-record}}
+\label{sec:runrecord}
+
+\subsection{The node}
+A \code{method} is a \emph{reusable} tool (one skull-strip, applied to many subjects); a
+\code{derivative} is a \emph{product} (a file and its hash). Neither captures \emph{the act}.
+The \code{run-record} is that act --- one concrete invocation: \textbf{this} command, on
+\textbf{these} content-pinned inputs, in \textbf{this} container, testing \textbf{this}
+hypothesis, on \textbf{this} date. Its required core is a \code{method}, a \code{command}, a
+\code{provenance-mode} (which selects the default verification tier), a \code{status}, a list
+of pinned \code{inputs}, and a list of expected \code{outputs}; edges (\code{reruns},
+\code{consumes}, \code{regenerates}, \code{emits}, plus \code{tests-hypothesis} /
+\code{addresses-concept}) make it navigable.
+
+It carries a \textbf{lifecycle}: \code{planned} (written when a hypothesis is decomposed;
+inputs may be a \emph{specification} rather than a pin) $\rightarrow$ \code{ready} (inputs
+pinned and standard-valid: the gate passed) $\rightarrow$ \code{running} $\rightarrow$
+\code{executed} (outputs hashed, verdict written) / \code{failed} / \code{superseded}. The
+runner advances the lifecycle and writes two blocks back into the node: \code{validation-gate}
+(the pre-run check) and \code{replay-verdict} (the per-output result).
+
+\subsection{The node runner}
+One engine, two modes. \code{glimmer run} is \emph{forward execution} --- gate, replay, hash
+and record outputs, advance \code{ready}~$\rightarrow$~\code{executed}. \code{glimmer rerun}
+is \emph{reproduction} --- re-execute an already-recorded run and compare its outputs to what
+was recorded. The runner is for running; reproduction is the special case of re-running
+something already recorded. Per run-record the engine (i)~resolves and pins inputs
+(materializing via \code{datalad get}, matching the recorded annex-key/commit-sha; an
+unreachable input short-circuits to an \code{inputs-unavailable} verdict that records data
+liveness --- never a false pass), (ii)~enforces the standards gate (\S\ref{sec:gate}),
+(iii)~replays the command pinned to the container digest via \code{datalad containers-run},
+falling back to \code{datalad run} and then a host subprocess flagged as a dirty environment,
+(iv)~verifies outputs per tier (\S\ref{sec:tiers}), and (v)~emits a provenance manifest and,
+optionally, writes the verdict back into the graph.
+
+\subsection{Standards as a runtime gate}
+\label{sec:gate}
+A run-record only \textbf{references} the standards its inputs must satisfy (an input-pin's
+\code{conforms-to}, the \code{requires-standard} edge). The runner \textbf{enforces} that
+each input is both \emph{pinned} and \emph{valid} before any command runs; a failure yields a
+\code{gate-failed} verdict and no execution. The check itself is \textbf{delegated} to the
+standard's \code{validator} hint (e.g. \code{bids-validator}), or falls back to graph-level
+validation, recording \code{unchecked} honestly when no validator is available. The
+run-record thus never reimplements validation, yet ``ran on standard-valid data'' becomes an
+enforced, recorded fact --- moving standards from passive metadata into the runtime.
+
+\subsection{Three verification tiers}
+\label{sec:tiers}
+Reproducibility is not one thing, and a single notion of ``match'' is wrong for most science.
+The tier is selected by \code{provenance-mode} and overridable per output.
+\begin{itemize}
+\item \textbf{Byte-identical} (deterministic). Re-execute; the output hash must match exactly
+  --- \emph{after normalization}, because two correct re-runs of an FSL/Nipype step differ in
+  volatile header bytes (timestamps, \code{descrip} fields) that carry no scientific content.
+  The runner zeroes those fields for NIfTI (keeping affine, dtype, and voxels exactly),
+  strips GIFTI metadata, and canonicalizes JSON, recording which normalization was applied;
+  if the imaging library is unavailable it falls back to a raw compare, recorded as such ---
+  never a silent pass.
+\item \textbf{Numeric-within-tolerance} (stochastic). Re-derive a number from source and
+  assert $|\,\text{observed}-\text{expected}\,| \le \max(\text{abs},\,\text{rel}\cdot|\text{expected}|)$.
+  This is the honest guarantee for stochastic analyses, and the mechanism for
+  \textbf{reproducing a paper's reported numbers from source} within a declared tolerance.
+\item \textbf{Structural} (agent-inferred). LLM/agent prose is not hash-reproducible.
+  Verification is structural: the node's \code{reasoning-trace} must cite real graph nodes,
+  those nodes must contain the values the trace claims, and any retriever manifest must be
+  self-consistent --- the analogue of byte-equality for the inferential regime.
+\end{itemize}
+Each verdict is recorded with its tier and degradations, so a ``verified'' verdict is never
+silently weaker than its claim (a host-fallback run is marked as such; a tampered expected
+hash yields \code{mismatch}).
+
+\subsection{Method equivalence and a cross-project registry}
+\label{sec:registry}
+A method is a reusable function over pinned data, and its \emph{semantic pattern} --- ``compute
+the mean of a series'', ``skull-strip a T1w'' --- is not unique to one project. We separate
+pattern from implementation with a \code{registry-ref} (a cross-project namespaced pattern
+id) and the edges \code{implements}, \code{equivalent-to}, and \code{refines}. Crucially,
+\code{equivalent-to} is \textbf{certified, not asserted}: the runner runs both
+implementations on the same pinned inputs and confirms their outputs match (byte-identically
+or within tolerance). This makes ``an equivalent, cleaner, or faster implementation is
+acceptable'' a checkable statement, and lets a method's identity --- and the verification
+baseline attached to it --- outlive a single graph. A dedicated abstract
+\code{method-pattern} node type and a published cross-institution registry are future work
+(\S\ref{sec:future}).
+
+\section{The agentic loop, made executable}
+\label{sec:loop}
+Glimmer previously specified a plan~$\rightarrow$~run~$\rightarrow$~feedback~$\rightarrow$~replan
+research loop --- a \code{concept} decomposed into hypotheses, agents producing derivatives
+and findings, a human reviewing --- but it had no runtime primitive; the ``run'' step left
+only a derivative behind. The run-record \emph{is} that primitive. A hypothesis acquires one
+or more \code{planned} run-records (\code{tests-hypothesis}~$\rightarrow$~\code{concept});
+running them gates, executes, and emits \code{derivative}s (\code{regenerates}) and a
+\code{finding} (\code{emits}) whose \code{addresses-concept} edge closes the loop back onto
+the question. The feedback the next iteration reads is the recorded verdict plus the emitted
+finding --- not the agent's memory. This is precisely why the loop becomes self-sustaining and
+why the agent failure modes of \S1 are structurally suppressed: a finding cannot be silently
+lost (it is a node addressing the concept), and a settled mistake cannot be silently repeated
+(the prior run's verdict is in the graph and a re-run must reproduce it).
+
+\section{Implementation and worked example}
+\label{sec:impl}
+The implementation is roughly 600 lines of dependency-light Python (PyYAML only; DataLad, a
+container runtime, the imaging library, and external validators are all feature-detected and
+degrade with the degradation recorded). The schema change is additive and
+backward-compatible; existing graphs validate unchanged.
+
+The worked example (\code{examples/synthetic-provenance/}) is the smallest artifact that
+exercises the whole design with no real data and no specialized dependencies. A \code{concept}
+is decomposed into four planned runs over a fixed synthetic signal whose input declares
+conformance to a toy standard with an executable validator (Table~\ref{tab:results}).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+run & provenance-mode & tier & reproduce verdict \\
+\midrule
+\code{run-synth-mean}          & deterministic   & byte-identical          & \code{verified} \\
+\code{run-synth-mean-fast}     & deterministic   & byte-identical          & \code{verified} (certified equiv.) \\
+\code{run-synth-classifier}    & stochastic      & numeric ($\pm 0.02$)    & \code{reproduced-within-tolerance} \\
+\code{run-synth-agent-summary} & agent-inferred  & structural              & \code{structurally-valid} \\
+\bottomrule
+\end{tabular}
+\caption{The worked example exercises all three tiers; reproduction is 100\%.}
+\label{tab:results}
+\end{table}
+
+Forward \code{glimmer run} advances the planned runs to executed and emits a finding that
+addresses the concept; \code{glimmer rerun} reproduces all four at 100\%. Negative controls
+behave as designed: a malformed input is caught by the standards gate before execution
+(\code{gate-failed}); a tampered expected hash yields \code{mismatch}; an unreachable input
+under \code{-{}-offline} yields \code{inputs-unavailable}; bypassing the gate is recorded as a
+dirty run; and equivalence certification confirms the two mean implementations produce
+identical output. Each maps to a non-zero exit, so the example doubles as a CI check.
+
+\section{Discussion}
+Proactive provenance reframes reproducibility from a property a reader audits by hand to a
+property the substrate enforces and re-checks. Three design choices carry the weight.
+\emph{First}, tiered verification: insisting on byte-equality for everything is both too
+strong (stochastic analyses fail it) and too weak (it ignores agent outputs entirely);
+matching the check to the computation's nature is what lets one mechanism span a deterministic
+pipeline, a reported statistic, and an LLM interpretation. \emph{Second}, delegated gating:
+standards become runtime-enforceable without the runner knowing any standard's internals, so
+the design rides the existing validator ecosystem rather than reimplementing it.
+\emph{Third}, certified equivalence: it converts the social convention ``use an equivalent
+method'' into a machine-checked relation, the seed of a shared verification baseline across
+institutions. Together these make the claim ``AI-native reproducibility'' concrete: an
+agent's unit of work is now a contract it can execute and that others can re-execute, with a
+verdict legible to both machines and reviewers.
+
+\section{Limitations and future work}
+\label{sec:future}
+The runner replays a recorded command; it does not yet \emph{generate} a reproduction path
+for an arbitrary external paper. The planned-run-record with specified (unpinned, possibly
+surrogate) inputs is the affordance for \textbf{minimal-path reproduction} --- synthesizing a
+minimal runnable graph to test a published claim even when the original data is unavailable
+--- the principal next step. The method registry currently ships as lightweight edges plus
+runtime-certified equivalence; a dedicated abstract \code{method-pattern} type and a
+published, cross-institution registry (with a reputation/provenance model for who contributed
+which pattern or baseline) are deferred. Container replay requires DataLad and a runtime; on a
+bare host the runner degrades and records the weaker environment, but does not reconstruct it.
+Structural verification establishes that an agent cited real values, not that its
+interpretation is correct --- it guarantees auditability, not truth. Finally, the worked
+example is synthetic by design; validating the byte-identical and numeric tiers on a full
+neuroimaging pipeline and on a dissertation's reported numbers is in progress in a downstream
+project that imports the runner as a dependency.
+
+\section{Conclusion}
+We argued that reproducibility belongs \emph{inside} the typed research object as an
+executable property, and realized it with a single node type and one tool. The
+\code{run-record} makes a run a first-class, lifecycle-bearing, standard-gated, self-verifying
+graph node; the node runner enforces the gate and verifies outputs at a fidelity matched to
+the computation. The result turns the agentic research loop from a description into a running
+system whose feedback is recorded verdicts rather than recollection --- a concrete substrate
+for AI-native science in which ``this reproduces'' is something the machine demonstrates, not
+something the reader is asked to believe.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

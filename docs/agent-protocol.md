@@ -92,6 +92,8 @@ The structure makes audit possible; the audit itself remains a human responsibil
 
 For deterministic outputs (a Nipype workflow), verification is exact: re-running from the cited SHAs must produce a byte-identical output. For LLM-inferred outputs, verification is structural: the trace must cite real nodes, the cited nodes must contain the values the trace claims, and the interpretation must be a plausible reading of those values. Neither test guarantees correctness; together they guarantee auditability.
 
+As of v0.6 these regimes are no longer prose-only — they are the three tiers the **node runner** (`glimmer run` / `glimmer rerun`, see [`proactive-provenance.md`](proactive-provenance.md)) actually checks: **byte-identical** (deterministic, with header normalization), **numeric-within-tolerance** (stochastic), and **structural** (agent-inferred — this section's contract, executed). A `run-record` with `produced-by-agent` set carries the same mandatory `reasoning-trace`, and the runner's structural tier verifies exactly the three conditions above.
+
 ## What this protocol does not solve
 
 - **The agent's reasoning may still be wrong**, even when grounded in real evidence. Glimmer's audit makes errors traceable; it does not eliminate them.

@@ -42,6 +42,36 @@ def cmd_validate(args):
     _run("validate.py", [args.path])
 
 
+def _run_args(args, mode):
+    argv = [args.rokb, args.node_id, "--mode", mode]
+    if args.manifest:      argv += ["--manifest", args.manifest]
+    if args.write_verdict: argv += ["--write-verdict"]
+    if args.offline:       argv += ["--offline"]
+    if args.no_container:  argv += ["--no-container"]
+    if args.no_gate:       argv += ["--no-gate"]
+    return argv
+
+
+def cmd_run(args):
+    """Forward-execute a run-record: gate inputs, replay the command, record outputs."""
+    _run("run.py", _run_args(args, "run"))
+
+
+def cmd_rerun(args):
+    """Reproduce a run-record: re-execute and verify outputs per its tier."""
+    _run("run.py", _run_args(args, "reproduce"))
+
+
+def _add_run_flags(p):
+    p.add_argument("rokb", help="path to an RO-KB directory")
+    p.add_argument("node_id", help="run-record id, or 'all'")
+    p.add_argument("--manifest", default=None, help="write the provenance manifest JSON here")
+    p.add_argument("--write-verdict", action="store_true", help="write gate + verdict back into sidecars")
+    p.add_argument("--offline", action="store_true", help="do not datalad-get missing inputs")
+    p.add_argument("--no-container", action="store_true", help="run on the host instead of the pinned container")
+    p.add_argument("--no-gate", action="store_true", help="skip the standards gate (flagged dirty)")
+
+
 def cmd_agent(args):
     """Run the reference QC agent over a Glimmer RO-KB."""
     _planned("agent", "The reference agent SDK is planned for roadmap v0.5 (see docs/roadmap.md).")
@@ -88,6 +118,14 @@ def main():
     p = sub.add_parser("validate", help="validate a Glimmer RO-KB against the schema")
     p.add_argument("path", help="path to an RO-KB directory")
     p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("run", help="forward-execute a run-record (gate → replay → record)")
+    _add_run_flags(p)
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("rerun", help="reproduce a run-record (re-execute + verify per tier)")
+    _add_run_flags(p)
+    p.set_defaults(func=cmd_rerun)
 
     p = sub.add_parser("agent", help="run the reference QC agent over an RO-KB")
     p.add_argument("--model", default="anthropic/claude-opus-4", help="LLM identifier")

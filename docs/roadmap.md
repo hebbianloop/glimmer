@@ -1,6 +1,10 @@
 # Glimmer Roadmap
 
-> v0.3.1 (current) extends the architecture beyond a single dataset: ten entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`, `persona`, `organization`), the universal `contributed-by` attribution edge plus the in-graph attribution layer (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`), the `ds000114-nipype` worked example, and the retrieval adapter for the literature-scout role. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
+> **v0.6.0 (current)** makes the graph *executable*: the `run-record` node type + the
+> `glimmer run` / `glimmer rerun` node runner (gate → replay → verify at three tiers).
+> See [`proactive-provenance.md`](proactive-provenance.md). Earlier milestones below.
+
+> v0.3.1 extends the architecture beyond a single dataset: ten entity types (`dataset`, `method`, `experiment`, `derivative`, `finding`, `concept`, `standard`, `publication`, `persona`, `organization`), the universal `contributed-by` attribution edge plus the in-graph attribution layer (`authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of`), the `ds000114-nipype` worked example, and the retrieval adapter for the literature-scout role. This document tracks the work that takes Glimmer from "single-project RO-KB" to "the substrate for AI-native science."
 
 ## v0.2 — Interop and BIDS Bridge
 
@@ -134,21 +138,45 @@ The reference agent (`glimmer/tools/agent.py`) lands as a minimal QC agent, then
 - `glimmer.agent.Reasoning` — base class for project-specific agents (trace verification, finding synthesis, literature review, meta-analysis summarization). Authors of project agents subclass this and only fill in domain-specific reasoning.
 - `glimmer.agent.Trajectory` — explicit trace object that records every node read and every edge walked, so outputs are auditable in a structured way.
 
-The payoff: a project-specific agent becomes a small amount of domain reasoning over a shared, audited tool surface, and every run emits a `Trajectory` that the verifiability contract (see `docs/agent-protocol.md`) can check after the fact. The reference QC agent stops being the ceiling and becomes the smallest example of the SDK.
+The payoff: a project-specific agent becomes a small amount of domain reasoning over a shared, audited tool surface, and every run emits a `Trajectory` that the verifiability contract (see `docs/agent-protocol.md`) can check after the fact. The reference QC agent stops being the ceiling and becomes the smallest example of the SDK. The `rerun_method` primitive named here is **realized in v0.6.0** by `glimmer/tools/run.py`.
 
-## v0.6 — Federation and shared schemas
+## v0.6.0 — Proactive provenance (executable run-records + node runner) ✅ shipped
 
-When two research groups maintain Glimmer projects on the same dataset, they should be able to publish their schemas, agents, and verification baselines as a shared registry. v0.6 specifies:
+The shift from a **descriptive** graph (records *what* an output is) to an **executable**
+one (can re-run it and prove it). Full spec: [`proactive-provenance.md`](proactive-provenance.md).
+
+- **`run-record` core node type** — one concrete, replayable invocation (the PROV
+  `Activity`): a method + pinned, standard-validated inputs + expected outputs + the exact
+  command + a pinned container env + a runner-written verdict, advanced through a
+  `planned → ready → running → executed` lifecycle. It is the **executable unit of the
+  agentic loop** (see [`agentic-loop.md`](agentic-loop.md)), with the core edges `reruns`,
+  `consumes`, `regenerates`, `emits`, and `tests-hypothesis` / `addresses-concept`.
+- **`glimmer run` / `glimmer rerun`** — the node runner: a pre-run **standards gate**
+  (inputs pinned AND valid, delegated to each standard's `validator`), `datalad
+  containers-run` replay, and verification at **three tiers** — byte-identical (with
+  NIfTI/GIFTI/JSON normalization), numeric-within-tolerance (re-derive a published number
+  from source), structural (agent/stochastic). Writes a provenance manifest.
+- **Lightweight method-registry affordances** — `registry-ref` + `implements` /
+  `equivalent-to` / `refines` on `method`; the runner **certifies** `equivalent-to` by
+  output-match. (A dedicated `method-pattern` type, a published registry, and minimal-path
+  reproduction move to v0.7 below.)
+- Worked example: [`examples/synthetic-provenance/`](../examples/synthetic-provenance/).
+
+## v0.7 — Federation, shared schemas & the method registry
+
+When two research groups maintain Glimmer projects on the same dataset, they should be able to publish their schemas, agents, and verification baselines as a shared registry. v0.7 specifies:
 
 - A schema-registry format for cross-institution publication of Glimmer extensions. **Domain profiles are the unit of publication here** — a curated profile (`status: curated`) lives in this repo; a profile published through the registry carries `status: community`. The `_profile.schema.yaml` metadata (`standard`, `version`, `status`) is the registry record.
+- **The method registry (full).** Promote the v0.6 lightweight affordances into a dedicated `method-pattern` node type (an abstract f(x) interface contract — CWL-style, no binding — that concrete `method` nodes `implement`), and publish patterns cross-institution so a method's semantic identity outlives one project's graph.
+- **Minimal-path reproduction.** Given any external claim (a cited `publication` / `concept`), synthesize a minimal run-graph of `planned` run-records — with spec'd or surrogate/synthetic inputs when the real data is unavailable — that would test it. Builds directly on the v0.6 planned-run-record + spec'd-input affordances.
 - A reputation / provenance model for who proposed which schema extension.
 - A federated-query mechanism: agent at site A can issue a query, the local graph + remote schema permit reasoning, the response is signed by the agent's identity.
 
 This is also the natural junction with decentralized-science infrastructure (Opscientia, OpenNeuro, Holonym-style verifiable researcher identity).
 
-## v0.7 — Storage, durability & the multi-tenant platform
+## v0.8 — Storage, durability & the multi-tenant platform
 
-The **service architecture rewrite** (tracked in #7): the work that takes Glimmer from a post-hoc documentation ledger to a node-driven model where storage durability is *part of the research object*, and where users provision their own hosted backing resources. It is the platform the hosted CLI (v0.8) sits on.
+The **service architecture rewrite** (tracked in #7): the work that takes Glimmer from a post-hoc documentation ledger to a node-driven model where storage durability is *part of the research object*, and where users provision their own hosted backing resources. It is the platform the hosted CLI (v0.9) sits on.
 
 **Why this belongs in the model.** Glimmer v0.3 records *what* an output is plus its content-hash, but delegates *where* it lives and *how many copies* exist to the datalad/git-annex layer — invisible in the typed research object. An output you cannot locate, or that has a single copy, is not reproducible, so durability belongs inside the model rather than only in ops config. The motivating near-miss: a multi-day, compute-expensive output that sat only in `/tmp`, discoverable only because someone asked where it was.
 
@@ -160,18 +188,18 @@ Three layers, smallest-first:
 
 Design record: #6, #7, and `ads-glimmer/docs/data/INFORMATION-ARCHITECTURE.md` (status: design, implementation deferred to this version).
 
-## v0.8 — Hosted service: CLI ↔ glimmer.science
+## v0.9 — Hosted service: CLI ↔ glimmer.science
 
-Today the CLI is local-only — it builds, validates, and traverses a file-tree RO-KB on disk. Once the **v0.7 platform** is in place, the CLI becomes the client to a hosted research-object service:
+Today the CLI is local-only — it builds, validates, and traverses a file-tree RO-KB on disk. Once the **v0.8 platform** is in place, the CLI becomes the client to a hosted research-object service:
 
 - **`glimmer auth login`** — authenticate the CLI to glimmer.science and bind to a project the user created there.
-- **Resource provisioning** — request and manage a project's backing resources from the CLI: **storage** (dataset hosting / DataLad remotes, provisioned per the v0.7 tenant model) and **compute** (run a `method` / pipeline remotely rather than locally).
+- **Resource provisioning** — request and manage a project's backing resources from the CLI: **storage** (dataset hosting / DataLad remotes, provisioned per the v0.8 tenant model) and **compute** (run a `method` / pipeline remotely rather than locally).
 - **Remote research-object operations** — modify / update / query the hosted RO-KB through the CLI: push new nodes and edges, fetch a subgraph, run a query against the project's graph.
-- **Identity & provenance** — operations are signed by the authenticated researcher identity, tying into the v0.6 federation model and Holonym-style verifiable identity.
+- **Identity & provenance** — operations are signed by the authenticated researcher identity, tying into the v0.7 federation model and Holonym-style verifiable identity.
 
-Dependency: **builds on the v0.7 platform rewrite** (#7). Captured here so the CLI surface is designed against the service rather than retrofitted later.
+Dependency: **builds on the v0.8 platform rewrite** (#7). Captured here so the CLI surface is designed against the service rather than retrofitted later.
 
-## Beyond v0.8 — Open questions
+## Beyond v0.9 — Open questions
 
 Each of these is a candidate edge or field family that doesn't yet have a consumer pushing on it. The leaning is recorded so the discussion starts from a proposal, not a blank page.
 
@@ -180,7 +208,7 @@ Each of these is a candidate edge or field family that doesn't yet have a consum
 - **Relationship-typed citation.** Citation is *already* typed by **target** — `cites-dataset` / `cites-method` / `cites-derivative` / `cites-finding`, plus generic `cites` and `validates-against`. What's missing is typing by **relationship**: CiTO / PROV has ~50 predicates (`disagrees-with`, `extends`, `uses-method-in`, …). *Proposal:* don't adopt all of them — add a small, high-signal subset (`extends`, `uses-method-in`, `disagrees-with`, `confirms`) as typed `publication → publication` edges layered over the existing by-target `cites-*`. The planned `meta-analyzes` edge is the first member of this family. *Leaning:* adopt the subset alongside `meta-analysis`.
 - **Retractions.** The evidence-relation layer already ships — `contradicts` and `competes-with` (concept), `challenged-by` (finding), `superseded-by` (concept) — so contradiction and supersession *are* modeled. What's **not** modeled is a formal, dated **retraction**: a withdrawal of a result by its own authors. *Proposal:* add a narrow `retracts` / `disputes` edge on `finding` / `publication`, extending the existing `superseded-by` pattern. A retraction is a first-class edge, **not a deletion** — the original node and the withdrawal both remain in the graph, which is exactly the auditability the substrate promises. *Leaning:* adopt the two missing edges; the rest of this is done.
 - **What if the agent disagrees with itself.** An agent run at time T₁ may produce a different output than the same agent at T₂ (different model version, different graph state). *Resolution (no schema change):* record both as separate `finding` nodes, each carrying its `agent` / `model` / `run-at` provenance — the schema already supports this. The work is to *document the pattern* and have the v0.5 agent SDK emit the disambiguating provenance by default.
-- **Privacy as a node-level property.** A `dataset` node referring to participant data needs an access policy. *Proposal:* the **v0.7 platform** adds a `data-use-agreement` reference (a node type or a constraint edge) and an `access-class` field on `dataset`; identified data stays out of the committed graph regardless, with the access policy governing `datalad get` against the provisioned remotes. *Leaning:* fold into v0.7, since it rides on the same storage/provisioning layer and v0.8 signed identity.
+- **Privacy as a node-level property.** A `dataset` node referring to participant data needs an access policy. *Proposal:* the **v0.8 platform** adds a `data-use-agreement` reference (a node type or a constraint edge) and an `access-class` field on `dataset`; identified data stays out of the committed graph regardless, with the access policy governing `datalad get` against the provisioned remotes. *Leaning:* fold into v0.8, since it rides on the same storage/provisioning layer and v0.9 signed identity.
 
 ## How to contribute to the roadmap
 

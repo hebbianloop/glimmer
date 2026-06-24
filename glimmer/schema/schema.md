@@ -1,6 +1,8 @@
-# Glimmer Schema (v0.5)
+# Glimmer Schema (v0.6)
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
+
+v0.6.0 adds the [`run-record`](#run-record) node type — **one concrete, replayable invocation** (the PROV `Activity`) that binds a method + pinned, standard-validated inputs + expected outputs + the exact command + a pinned container environment + a runner-written verdict, advanced through a `planned → ready → running → executed` lifecycle. It makes the agentic loop (`docs/agentic-loop.md`) *executable*: the runner (`glimmer run` / `glimmer rerun`, `glimmer/tools/run.py`) gates inputs on their standards, replays the command via `datalad containers-run`, and verifies outputs at one of three tiers (byte-identical / numeric-within-tolerance / structural). With it: the core edges `reruns`, `consumes`, `regenerates`, `emits` (plus the optional inverse `regenerated-by` on `derivative`), and `tests-hypothesis` / `addresses-concept` allowed *from* a run-record. v0.6.0 also adds lightweight **method-registry** affordances — a `registry-ref` field and the `implements` / `equivalent-to` / `refines` edges on `method`, so a method points at a cross-project canonical pattern and the runner can *certify* equivalence by output-match — and an optional `validator` hint on `standard` for the runtime gate. (A dedicated `method-pattern` type, a published cross-institution registry, and minimal-path reproduction are deferred to v0.7.) See [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md).
 
 v0.5.1 adds a core **data-availability** block to `dataset` — `data-remote` (which git-annex special remote / DataLad sibling holds the bytes), `data-provenance`, `data-last-commit`, and `data-liveness` (last reachability check) — so a query over the graph can tell whether a dataset is actually pullable and from where, complementing the DataLad re-fetch coordinates. v0.5 adds the [`instrument`](#instrument) node type (a survey, task, assay, scanner, or device used to *generate* data — the measurement apparatus, distinct from the `dataset` it produces or the `experiment` it delivers), promoted to core because every empirical domain has measurement instruments. With it: two core edges — [`acquired-with`](#acquired-with) (a dataset/experiment → the instrument that produced it) and [`described-by`](#described-by) (a dataset → the experiment/paradigm that describes it). v0.5 also lets a **domain profile declare its own vocabulary** — `node-types:` and `edge-types:` lists — so a domain can add types/edges without touching the core (promote to core once ≥2 domains need it); see [Domain profiles](#domain-profiles). v0.4 adds the [`program`](#program) node type (a study/cohort/initiative as a first-class container) with the universal [`in-program`](#in-program) (same-graph membership) and [`cross-project`](#cross-project) (out-of-graph, namespaced inter-project) edges.
 
@@ -156,6 +158,11 @@ Canonical edges:
 - `validates-against` → `publication` node
 - `requires-standard` → `standard` node
 - `composes` → `method` (sub-methods for workflow composition)
+- `implements` → the canonical pattern this realizes (typically a `cross-project` registry id)
+- `equivalent-to` → `method` (a different implementation that produces the same outputs within tolerance; **runner-certified**, not merely asserted)
+- `refines` → `method` (a tuned / modified / fine-tuned variant of)
+
+A method is a reusable f(x), and its **semantic pattern** can outlive one project's graph. The optional `registry-ref` field (a namespaced id like `glimmer-methods:skullstrip-t1w`) names the canonical pattern this method implements; `implements` is its navigable edge. Two methods that produce the same outputs on the same pinned inputs are tolerated as `equivalent-to` (the runner can *certify* this by output-match — see [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md)); a parameter/fine-tuning variant uses `refines`. A dedicated `method-pattern` node type and a published cross-institution registry are deferred to v0.7.
 
 Example sidecar fields (`tool` / `version` / `parameters` are core; `nipype-node-type` comes from the neuroimaging profile):
 ```yaml
@@ -227,6 +234,8 @@ falsifiable: true
 
 ### `standard`
 A spec, atlas, template, or protocol. Nodes themselves, not just background metadata, so constraints can be expressed as edges and an agent can read the standard's definition directly.
+
+The optional `validator` field (v0.6) makes a standard **runtime-enforceable**: it tells the runner's pre-run gate how to check conformance — e.g. `validator: {tool: bids-validator, command: "bids-validator {path}", kind: external}` (a zero exit means conformant; `{path}` is the input under test), or `kind: glimmer` to use `glimmer validate` on the graph. A run-record references the standard (input-pin `conforms-to` / `requires-standard`); the runner runs this validator before executing. See [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md).
 
 Canonical edges:
 - `defines` → `standard` (sub-standards)
@@ -312,6 +321,68 @@ edges:
 ---
 ```
 
+### `run-record`
+**One concrete, replayable invocation** — the PROV `Activity` that realizes lineage. Where a `method` is a *reusable* tool (one BET, applied to many subjects) and a `derivative` is a *product* (a file + its hash), a `run-record` is *the act*: **this** command, on **these** exact pinned inputs, in **this** pinned container, testing **this** hypothesis, on **this** date. It is the **executable unit of the agentic loop** (see [`docs/agentic-loop.md`](../../docs/agentic-loop.md)) — authored as part of a plan, then run and verified by `glimmer run` / `glimmer rerun` (`glimmer/tools/run.py`). The runner is for **running**, not just reproducing; reproduction is the special case of re-running a record that already executed. Full spec: [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md).
+
+**Lifecycle** (the `status` field): `planned` (authored as part of a concept's decomposition; inputs may be *spec'd* / unpinned) → `ready` (inputs pinned + standard-valid: the runner's gate passed) → `running` → `executed` (outputs hashed, verdict written) / `failed` / `superseded`.
+
+Required fields:
+- `method` — node-id of the `method` this run executes (mirror with a `reruns` edge)
+- `command` — the exact entrypoint / command line (the `datalad run` `cmd`)
+- `provenance-mode` — `deterministic` | `agent-inferred` | `stochastic`; selects the default **verification tier**
+- `status` — the lifecycle state above
+- `inputs` — list of **input-pins** `{node, datalad-annex-key|datalad-commit-sha, conforms-to?, role}`; the content pin is required unless `status: planned`
+- `outputs` — list of **output-pins** `{node (→ a `derivative`), expected-hash, output-path, tier?}`
+
+Key optional fields: `container-image` / `container-digest` (env pin, replayed via `datalad containers-run`), `reproduction-tolerance` (`{default:{rel,abs}, quantities:{<name>:{rel,abs}}}` for the numeric tier), `produced-by-agent` + `reasoning-trace` (required together, for agent/structural runs), `retriever-manifest` (structural tier). The runner writes back two blocks: `validation-gate` (per-input pinned+standard-valid result) and `replay-verdict` (the per-output verdict).
+
+Canonical edges:
+- `reruns` → `method` (the method this run executes)
+- `consumes` → `dataset` or `derivative` (a pinned input — mirrors `inputs[].node`)
+- `regenerates` → `derivative` (an output — mirrors `outputs[].node`; optional inverse `regenerated-by` on the derivative)
+- `emits` → `finding` (an interpretation this run produced)
+- `tests-hypothesis` / `addresses-concept` → `concept` (loop linkage: ties the run to the question it tests)
+- `requires-standard` → `standard` (inputs/outputs must conform; **gated at runtime**)
+
+**The three verification tiers** (chosen by `provenance-mode`, overridable per output-pin via `tier`):
+- **byte-identical** (`deterministic`) — re-execute and assert the output hash matches, after NIfTI/GIFTI header normalization so two *correct* re-runs are not flagged on volatile header bytes.
+- **numeric-within-tolerance** (`stochastic` with `reproduction-tolerance`) — re-derive a published number from source and assert `abs(obs−exp) ≤ max(abs, rel·|exp|)`. An empty tolerance means exact equality.
+- **structural** (`agent-inferred`) — the honest analogue for LLM/stochastic outputs (see [`docs/agent-protocol.md`](../../docs/agent-protocol.md)): the `reasoning-trace` must cite real nodes, those nodes must contain the claimed values, and the `retriever-manifest` (if any) must match.
+
+**The standards gate.** A run-record only *references* the standards its inputs must satisfy (via input-pin `conforms-to` / the `requires-standard` edge). Before executing, the runner enforces that each input is **pinned AND valid**, delegating the actual check to the standard's `validator` hint (e.g. `bids-validator`) or falling back to `glimmer validate`. The run-record never reimplements validation; it carries the requirement, and the runner records the outcome in `validation-gate`. A failed gate yields verdict `gate-failed` and **no execution**.
+
+Complete example (deterministic tier, executed):
+
+```yaml
+---
+id: run-synth-mean-2026-06-22
+type: run-record
+name: "Run: mean of synthetic signal"
+created: '2026-06-22T17:00:00Z'
+modified: '2026-06-22T17:00:00Z'
+method: method-numpy-mean
+command: "python code/compute_mean.py inputs/signal.npy out/mean.json"
+provenance-mode: deterministic
+status: executed
+container-image: "python:3.11-slim"
+container-digest: "sha256:9f2c..."
+inputs:
+  - {node: dataset-synth-signal, datalad-annex-key: "MD5E-s4096--3c1e...", conforms-to: standard-synth-signal-v1, role: input-signal}
+outputs:
+  - {node: derivative-synth-mean, expected-hash: "sha256:1a2b...", output-path: "out/mean.json", tier: byte-identical}
+edges:
+  - {type: reruns,           target: method-numpy-mean}
+  - {type: consumes,         target: dataset-synth-signal}
+  - {type: regenerates,      target: derivative-synth-mean}
+  - {type: requires-standard, target: standard-synth-signal-v1}
+  - {type: tests-hypothesis, target: concept-mean-exceeds-threshold}
+---
+
+Binds [[method-numpy-mean]] to pinned, standard-validated input [[dataset-synth-signal]]
+and expected output [[derivative-synth-mean]]. `glimmer rerun` must reproduce the output
+byte-for-byte. The runner writes `validation-gate` and `replay-verdict` back into this file.
+```
+
 ## Cross-cutting edges (`_universal-edges`)
 
 Some edges are allowed from **any** node type; the validator unions these in regardless of the source node's `edges-allowed`.
@@ -344,7 +415,7 @@ edges:
   - {type: cross-project, target: "ads-glimmer:org-nij", role: inherited-from-parent}
 ```
 
-Convention: resolve duplicated nodes to the **parent** project (it owns the canonical node); a subproject keeps an inherited copy that points back with `role: inherited-from-parent`. Cross-graph resolution is by namespace; a future federated index (roadmap v0.6) may validate these targets.
+Convention: resolve duplicated nodes to the **parent** project (it owns the canonical node); a subproject keeps an inherited copy that points back with `role: inherited-from-parent`. Cross-graph resolution is by namespace; a future federated index (roadmap v0.7) may validate these targets.
 
 ## Index file (`_glimmer-index.json`)
 

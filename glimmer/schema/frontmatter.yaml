@@ -1,4 +1,4 @@
-# Glimmer Schema v0.3.1 — Front-Matter Field Definitions
+# Glimmer Schema v0.6.0 — Front-Matter Field Definitions
 #
 # This file is the machine-readable contract for what fields each entity type
 # must, may, and may not have in its sidecar front-matter. Validators consume
@@ -28,8 +28,22 @@
 # as the canonical example). Added `finding` between `derivative` and `publication`
 # per the EVI Evidence Graph Ontology. Agent identity is now a string field on
 # `finding` and `derivative` (`produced-by-agent`), not a separate node type.
+#
+# v0.6.0: added the `run-record` node type — one concrete, replayable invocation
+# (the PROV `Activity`) that binds a method + pinned, standard-validated inputs +
+# expected outputs + the exact command + pinned environment + a runner-written
+# verdict, advanced through a lifecycle (planned → ready → running → executed).
+# This is the executable unit of the agentic loop (docs/agentic-loop.md), driven
+# by `glimmer run` / `glimmer rerun` (glimmer/tools/run.py). With it: the core
+# edges `reruns`, `consumes`, `regenerates`, `emits` (+ optional inverse
+# `regenerated-by` on derivative); `tests-hypothesis` / `addresses-concept` are
+# now allowed FROM a run-record. v0.6.0 also adds lightweight method-registry
+# affordances — `registry-ref` plus the `implements` / `equivalent-to` / `refines`
+# edges — so a method can point at a cross-project canonical pattern and the runner
+# can certify equivalence by output-match. `standard` gains an optional `validator`
+# hint so the runner's pre-run standards gate knows how to check conformance.
 
-schema-version: "0.5.1"
+schema-version: "0.6.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
@@ -52,7 +66,7 @@ default-domain: neuroimaging
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program,instrument}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program,instrument,run-record}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -122,6 +136,13 @@ method:
     container-image:   string                   # e.g., "nipreps/fmriprep:23.0.2"
     container-digest:  string                   # sha256 of the container image
     workflow-definition-sha: string             # git SHA of the workflow source file
+    # v0.6 method-registry affordance: a method is a reusable f(x); its SEMANTIC
+    # pattern can outlive one project's graph. `registry-ref` is a cross-project
+    # namespaced id naming the canonical pattern this method implements (e.g.
+    # "glimmer-methods:skullstrip-t1w"); the `implements` edge is the navigable
+    # mirror. A dedicated `method-pattern` node type + published registry format
+    # is deferred to v0.7 (federation).
+    registry-ref:      string                   # namespaced canonical-pattern id, e.g. "glimmer-methods:skullstrip-t1w"
   edges-allowed:
     - applies-to         # → dataset
     - produces           # → derivative
@@ -130,6 +151,9 @@ method:
     - composes           # → method (sub-methods for workflows)
     - upstream-of        # → method (pipeline DAG: produces input for)
     - downstream-of      # → method (pipeline DAG: consumes output of)
+    - implements         # → method/cross-project (the canonical pattern this realizes)
+    - equivalent-to      # → method (same outputs within tolerance; runner-certified)
+    - refines            # → method (a tuned / modified / fine-tuned variant of)
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -153,6 +177,7 @@ derivative:
     - derives-from      # → dataset or derivative
     - cited-in          # → publication
     - supports-finding  # → finding
+    - regenerated-by    # → run-record (the replayable activity that produced this; optional inverse of `regenerates`)
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -255,6 +280,13 @@ standard:
   optional:
     version:           string
     upstream-url:      string
+    # v0.6: how the runner's pre-run standards GATE checks conformance to this
+    # standard. The run-record only REFERENCES the standard (input-pin `conforms-to`
+    # / `requires-standard`); the actual checking is delegated to the tool named
+    # here, so the run-record never reimplements validation. `command` is a
+    # template with `{path}` substituted for the input under test; a zero exit ==
+    # conformant. `kind: glimmer` means "use `glimmer validate` on the graph".
+    validator:         map                       # {tool: "bids-validator", command: "bids-validator {path}", kind: external|glimmer}
   edges-allowed:
     - defines           # → standard (sub-standards)
     - versions          # → standard (relates versions)
@@ -377,6 +409,66 @@ program:
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
+# run-record — ONE concrete, replayable invocation: the PROV `Activity` that
+# realizes lineage. A `method` is a reusable tool; a `run-record` is *this* run of
+# it — these exact pinned inputs, this command, this container digest, on this date,
+# testing this hypothesis. It is the executable unit of the agentic loop: authored
+# as part of a plan (`status: planned`, possibly with spec'd/unpinned inputs), then
+# advanced through `ready → running → executed` by `glimmer run` (forward execution)
+# or re-checked by `glimmer rerun` (reproduction). The runner writes `validation-gate`
+# (the pre-run pinned+standard-valid check) and `replay-verdict` (the per-output
+# verdict) back into the sidecar. See docs/proactive-provenance.md.
+#
+# input-pin  (each element of `inputs`):
+#   {node: <dataset|derivative id>,            # the node consumed (mirror with a `consumes` edge)
+#    datalad-annex-key: <key> | datalad-commit-sha: <sha>,   # the content pin; OMIT while status=planned (spec'd input)
+#    conforms-to: <standard id>,               # optional: input must pass this standard's gate
+#    role: <string>}                           # e.g. input-signal, mask
+# output-pin (each element of `outputs`):
+#   {node: <derivative id>,                    # MUST resolve to a derivative node (mirror with a `regenerates` edge)
+#    expected-hash: "sha256:…",                # the recorded output-hash this run reproduces
+#    output-path: <relative path>,
+#    tier: byte-identical|numeric-tolerance|structural}   # optional per-output override of the mode default
+# ─────────────────────────────────────────────────────────────────────────────
+run-record:
+  inherits: _common
+  required:
+    method:            string                   # node-id of the method this run executes (mirror with a `reruns` edge)
+    command:           string                   # exact entrypoint / command line (datalad-run `cmd`)
+    provenance-mode:   <enum:{deterministic,agent-inferred,stochastic}>  # selects the default verification tier
+    status:            <enum:{planned,ready,running,executed,failed,superseded}>  # lifecycle
+    inputs:            [list-of-input-pins]      # see header; pins required unless status=planned
+    outputs:           [list-of-output-pins]     # see header; bind derivative node-ids + expected hash
+  optional:
+    container-image:   string                   # e.g., "python:3.11-slim"
+    container-digest:  string                   # sha256 env pin; replayed via `datalad containers-run`
+    workflow-definition-sha: string
+    parameters:        map
+    parameters-hash:   sha256
+    reproduction-tolerance:  map                 # numeric tier: {default:{rel,abs}, quantities:{<name>:{rel,abs}}}
+    run-at:            datetime
+    runner:            string                    # datalad-run id / CI job / agent id
+    produced-by-agent: string                    # set for agent-inferred / stochastic runs
+    reasoning-trace:   map                        # REQUIRED when produced-by-agent is set (finding's shape)
+    retriever-manifest: map                       # structural tier: index pin (reproducible-modulo-index)
+    datalad-superdataset:  string
+    datalad-relative-path: string
+    datalad-commit-sha:    string
+    datalad-annex-key:     string
+    validation-gate:   map                        # WRITTEN BY THE RUNNER: per-input {pinned, standard, valid, validator}
+    replay-verdict:    map                        # WRITTEN BY THE RUNNER: {verdict, tier, outputs-checked, numeric-checks, …}
+  edges-allowed:
+    - reruns             # → method (the method this run executes)
+    - consumes           # → dataset or derivative (a pinned input)
+    - regenerates        # → derivative (an output this run produces)
+    - emits              # → finding (an interpretation this run produced)
+    - tests-hypothesis   # → concept (the hypothesis this run tests — loop linkage)
+    - addresses-concept  # → concept (the question this run addresses — loop linkage)
+    - requires-standard  # → standard (inputs/outputs must conform; gated at runtime)
+    - validates-against  # → publication (this run reproduces a published number)
+  body-required: true
+
+# ─────────────────────────────────────────────────────────────────────────────
 # index file — required at the dataset root
 # ─────────────────────────────────────────────────────────────────────────────
 _glimmer-index:
@@ -403,6 +495,9 @@ _validator-hints:
     - "finding node has no `based-on` edge or empty list"
     - "method node has no `version` field"
     - "publication node has no `cites-*` edges"
+    - "run-record output-pin has no `expected-hash` (status=executed)"
+    - "run-record output/input/method node not mirrored by a regenerates/consumes/reruns edge"
+    - "run-record status=executed but no `replay-verdict`"
   error-if:
     - "node `id` is not kebab-case"
     - "node `id` is not unique within the dataset"
@@ -410,3 +505,7 @@ _validator-hints:
     - "edge type is not in the allowed list for the source node's type"
     - "required field is missing"
     - "finding produced-by-agent is set but reasoning-trace is missing"
+    - "run-record produced-by-agent is set but reasoning-trace is missing"
+    - "run-record output-pin `node` is missing or not a `derivative`"
+    - "run-record input-pin missing `node`, or missing a content pin while status!=planned"
+    - "run-record `method` field is missing or not a `method` node"

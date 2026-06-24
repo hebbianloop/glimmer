@@ -19,7 +19,11 @@ And the code:
   title={Glimmer: a Research-Object Knowledge Base for AI-Native Scientific Workflows},
   author={El Damaty, Shady},
   url={https://github.com/hebbianloop/glimmer},
-  version={0.1.0},
+  version={0.6.0},
   year={2026}
 }
 ```
+
+The working manuscript that extends the architecture to **proactive provenance**
+(executable run-records + the node runner) is drafted at
+[`docs/paper-draft.md`](paper-draft.md).
