@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-"""AGENT-INFERRED method: an LLM-style summary over the two derivatives.
+"""Scripted structural-verification fixture. This is not an LLM agent.
 
-  python code/summarize_agent.py out/mean.json out/acc.json out/summary.json
-
-Stands in for an agent that reads the mean + accuracy derivatives and writes an
-interpretation. Its output is NOT verified by hashing (an agent's prose is not
-byte-reproducible); instead the run-record carries `provenance-mode: agent-inferred`
-and a `reasoning-trace`, and the STRUCTURAL tier checks that the cited nodes exist
-and hold the claimed values — the honest analogue per docs/agent-protocol.md.
+Copies numeric observations into an explicit evidence trace. The verifier checks
+those observations against the pinned input files; it does not validate prose.
 """
-import json, sys
+import json
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-mean_p, acc_p, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-mean = json.loads(mean_p.read_text())["mean-signal"]
-acc = json.loads(acc_p.read_text())["classifier-accuracy"]
-interp = (f"Mean signal {mean:.3f} exceeds the 0.4 threshold and the classifier "
-          f"reaches {acc:.2f} accuracy, jointly supporting the hypothesis.")
+mean_path, accuracy_path, out = map(Path, sys.argv[1:])
+mean = json.loads(mean_path.read_text())['mean-signal']
+accuracy = json.loads(accuracy_path.read_text())['classifier-accuracy']
+trace = {
+    'nodes-accessed': ['derivative-synth-mean', 'derivative-synth-accuracy'],
+    'metrics-cited': {
+        'mean-signal': {'node': 'derivative-synth-mean', 'value': mean},
+        'classifier-accuracy': {'node': 'derivative-synth-accuracy', 'value': accuracy},
+    },
+    'evidence-summary': 'Synthetic mean and jittered accuracy copied from the two input files.',
+    'model-identifier': 'synthetic/scripted-summary-1',
+    'timestamp': datetime.now(timezone.utc).isoformat(),
+}
 out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(json.dumps({"interpretation": interp,
-                           "based-on": ["derivative-synth-mean", "derivative-synth-accuracy"]}, indent=2) + "\n")
-print(interp)
+out.write_text(json.dumps({'interpretation': f'Synthetic mean {mean:.3f}; toy accuracy {accuracy:.4f}.',
+                           'reasoning-trace': trace}, indent=2) + '\n')

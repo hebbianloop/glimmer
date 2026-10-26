@@ -1,49 +1,26 @@
 #!/usr/bin/env python3
-"""run.py — the Glimmer node runner: execute and verify `run-record` nodes.
+"""Execute trusted local research-object run records and report bounded checks.
 
-A `run-record` is one concrete, replayable invocation (the PROV Activity). This
-module turns it into action. Two modes over one engine:
+Inputs must match their content pins and declared validators must be available.
+Registered DataLad container image files are hash-checked before invocation;
+unpinned host execution requires --no-container. Commands/validators are argv
+strings, not implicit shell programs. Use an explicit shell when needed.
 
-  run       forward execution — gate inputs, replay the command, hash the outputs,
-            record the produced hashes. The primary path (`glimmer run`).
-  reproduce re-execute an already-recorded run and COMPARE its outputs to what was
-            recorded, per the run's verification tier (`glimmer rerun`).
-
-The runner is for RUNNING, not just reproducing; reproduction is the special case
-of re-running something already recorded.
-
-Per run-record the engine:
-  1. Resolves the node and confirms it is a `run-record`.
-  2. STANDARDS GATE — each input must be (a) available/pinned and (b) valid against
-     its declared standard. Validation is DELEGATED to the standard's `validator`
-     hint (e.g. bids-validator) or falls back to `glimmer validate`; the runner only
-     enforces and records the outcome. A failed gate ⇒ verdict `gate-failed`, no run.
-  3. EXECUTE — replay `command` pinned to `container-digest` via
-     `datalad containers-run` when available, falling back to `datalad run`, then a
-     host subprocess (only with --no-container, flagged dirty in the verdict).
-  4. VERIFY (reproduce mode) per tier:
-       byte-identical        — hash match after NIfTI/GIFTI/JSON normalization
-       numeric-tolerance     — re-derived numbers within {rel,abs} of expected
-       structural            — reasoning-trace cites real nodes holding the claimed
-                               values; retriever-manifest matches
-  5. Write a provenance MANIFEST (JSON) and, with --write-verdict, write the
-     `validation-gate` + `replay-verdict` blocks back into the sidecar.
-
-Dependency-light: only PyYAML is required. datalad, a container runtime, nibabel,
-and external standard validators are all FEATURE-DETECTED and degrade gracefully
-(with the degradation recorded honestly in the verdict — never a silent pass).
-
-Public surface (imported by downstream harnesses, e.g. an ADS provenance_check.py):
-    sha256_file, load_graph, run_node, certify_equivalence, write_manifest, RunVerdict
+Output checks distinguish raw byte identity, normalized content, finite numeric
+agreement and structural citation/value checks. Structural success does not
+verify scientific interpretation. See docs/proactive-provenance.md for the
+supported formats, migration requirements and untested integration boundaries.
 """
 
 import sys, os, json, hashlib, argparse, shutil, subprocess, xml.dom.minidom
+import io, math, re, shlex
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 import yaml
 
-RUNNER_VERSION = "glimmer-run 0.6.0"
+RUNNER_VERSION = "glimmer-run 0.6.0-hardening"
+SUCCESS = {"executed", "verified", "normalized-match", "reproduced-within-tolerance", "structurally-valid", "checks-passed"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +59,8 @@ def load_graph(rokb):
     for entry in index["nodes"]:
         p = rokb / entry["path"]
         fm, _ = read_sidecar(p)
+        if entry["id"] in graph or fm.get("id") != entry["id"]:
+            raise ValueError("duplicate index ID or sidecar ID mismatch")
         graph[entry["id"]] = (p, fm)
     return graph
 
@@ -97,14 +76,14 @@ def normalized_hash(path):
     """(hash, normalization-label) for an output file, normalizing volatile,
     non-semantic bytes (NIfTI/GIFTI headers, JSON key order) before hashing."""
     path = Path(path)
-    suf = "".join(path.suffixes).lower()
-    if suf in (".nii", ".nii.gz"):
+    suf = path.name.lower()
+    if suf.endswith((".nii", ".nii.gz")):
         return _nifti_hash(path)
-    if suf == ".gii":
+    if suf.endswith(".gii"):
         return _gifti_hash(path)
-    if suf == ".json":
+    if suf.endswith(".json"):
         try:
-            canon = json.dumps(json.loads(path.read_text()), sort_keys=True, separators=(",", ":")).encode()
+            canon = json.dumps(json.loads(path.read_text()), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
             return _sha256_bytes(canon), "json-canonical"
         except Exception:
             return sha256_file(path), "raw (json parse failed)"
@@ -112,11 +91,13 @@ def normalized_hash(path):
 
 
 def _nifti_hash(path):
-    """Realizes the long-promised NIfTI normalization: blank volatile header
-    fields, keep affine+dtype+voxels exactly, then hash. nibabel absent ⇒ raw
-    compare, recorded honestly (never a silent pass)."""
+    """Hash declared header fields, extensions, scaling and exact stored voxels.
+
+    Avoid get_fdata(): converting int64 voxels to float64 can erase differences.
+    Unavailable normalization is reported as a raw fallback, never acceptance.
+    """
     try:
-        import numpy as np  # noqa: F401  (nibabel pulls it in)
+        import numpy as np
         import nibabel as nib
     except Exception:
         return sha256_file(path), "raw (nibabel unavailable)"
@@ -133,10 +114,18 @@ def _nifti_hash(path):
                 hdr[fld] = 0
             except Exception:
                 pass
-        data = img.get_fdata()
+        proxy = img.dataobj
+        data = proxy.get_unscaled() if hasattr(proxy, "get_unscaled") else np.asanyarray(proxy)
         h = hashlib.sha256()
+        h.update(hdr.binaryblock)
+        h.update(str(img.shape).encode())
         h.update(bytes(img.affine.astype("float64").tobytes()))
         h.update(str(img.get_data_dtype()).encode())
+        h.update(repr((getattr(proxy, "slope", 1.0), getattr(proxy, "inter", 0.0))).encode())
+        for extension in hdr.extensions:
+            serialized = io.BytesIO()
+            extension.write_to(serialized, byteswap=sys.byteorder == "big")
+            h.update(serialized.getvalue())
         h.update(data.tobytes())
         return "sha256:" + h.hexdigest(), "nifti-header-zeroed"
     except Exception as e:
@@ -144,12 +133,11 @@ def _nifti_hash(path):
 
 
 def _gifti_hash(path):
-    """Strip the volatile <MetaData> block, canonicalize XML, then hash."""
+    """Serialize XML while retaining metadata with possible scientific meaning."""
     try:
         dom = xml.dom.minidom.parseString(Path(path).read_text())
-        for md in dom.getElementsByTagName("MetaData"):
-            md.parentNode.removeChild(md)
-        return _sha256_bytes(dom.toxml().encode()), "gifti-metadata-stripped"
+        # Metadata may carry anatomical/coordinate semantics; retain it.
+        return _sha256_bytes(dom.toxml().encode()), "gifti-xml-serialized"
     except Exception:
         return sha256_file(path), "raw (gifti parse failed)"
 
@@ -215,24 +203,68 @@ def _resolve_input_path(pin, graph, run_root):
 
 
 def _run_validator(standard_fm, target_path, rokb, run_root):
-    """Run a standard's `validator` hint against a file. Returns (valid, detail).
-    Delegated — the run-record never reimplements validation. External commands
-    run with cwd=run_root so relative paths resolve like the analysis itself."""
-    v = (standard_fm or {}).get("validator") or {}
-    kind = v.get("kind", "external" if v.get("command") else "none")
-    if kind == "glimmer":
-        rc = subprocess.run([sys.executable, "-m", "glimmer.tools.validate", str(Path(rokb).resolve())],
-                            capture_output=True, text=True)
-        return rc.returncode in (0, 2), f"glimmer validate rc={rc.returncode}"
-    cmd = v.get("command")
-    if not cmd:
-        return True, "none (unchecked: standard declares no validator)"
-    tool = (v.get("tool") or cmd.split()[0])
-    if shutil.which(tool) is None and not Path(tool).exists():
-        return True, f"none (unchecked: validator `{tool}` not installed)"
-    filled = cmd.replace("{path}", str(target_path))
-    rc = subprocess.run(filled, shell=True, cwd=str(run_root), capture_output=True, text=True)
-    return rc.returncode == 0, f"{tool} rc={rc.returncode}"
+    """A declared standard needs an available validator; unchecked is a failure."""
+    validator = standard_fm.get("validator") or {}
+    if not isinstance(validator, dict):
+        return False, "invalid validator declaration"
+    if validator.get("kind") == "glimmer":
+        rc = subprocess.run([sys.executable, str(Path(__file__).with_name("validate.py")),
+                             str(Path(rokb).resolve())], capture_output=True, text=True)
+        return rc.returncode in (0, 2), f"graph schema only: rc={rc.returncode}"
+    command = validator.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return False, "standard has no executable validator"
+    # Substitute after tokenization so paths with spaces stay one argument.
+    argv = [arg.replace("{path}", str(target_path)) for arg in shlex.split(command)]
+    try:
+        rc = subprocess.run(argv, cwd=run_root, capture_output=True, text=True)
+    except OSError as exc:
+        return False, f"validator unavailable: {exc}"
+    return rc.returncode == 0, f"{argv[0]} rc={rc.returncode}"
+
+
+def _verify_pin(pin, path):
+    """Check actual bytes against every declared pin, without trusting availability.
+
+    Hash-based annex keys can be checked offline. Commit pins compare a regular
+    Git blob with the working file (not merely the current HEAD). Other annex
+    backends and symlink blobs are unsupported and fail closed.
+    """
+    checks = []
+    key = pin.get("datalad-annex-key")
+    if key:
+        match = re.fullmatch(r"(SHA256|MD5)E?-s([0-9]+)--([0-9a-fA-F]+)(?:\..*)?", str(key))
+        if not match:
+            return False, "unsupported or malformed annex content key"
+        algorithm, size, expected = match.groups()
+        if len(expected) != (64 if algorithm == "SHA256" else 32):
+            return False, "invalid annex digest length"
+        digest = hashlib.new(algorithm.lower())
+        with Path(path).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        checks.append(Path(path).stat().st_size == int(size) and digest.hexdigest() == expected.lower())
+    commit = pin.get("datalad-commit-sha")
+    if commit:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", str(commit)):
+            return False, "commit pin must be a full SHA-1 commit ID"
+        git_root = subprocess.run(["git", "-C", str(Path(path).parent), "rev-parse", "--show-toplevel"],
+                                  capture_output=True, text=True)
+        if git_root.returncode:
+            return False, "commit pin cannot be resolved outside a Git repository"
+        root = Path(git_root.stdout.strip())
+        object_type = subprocess.run(["git", "-C", str(root), "cat-file", "-t", str(commit)],
+                                     capture_output=True, text=True)
+        if object_type.returncode or object_type.stdout.strip() != "commit":
+            return False, "commit pin must identify a Git commit object"
+        relative = str(Path(path).resolve().relative_to(root.resolve()))
+        entry = subprocess.run(["git", "-C", str(root), "ls-tree", str(commit), "--", relative],
+                               capture_output=True, text=True)
+        if entry.returncode or not entry.stdout.startswith(("100644 ", "100755 ")):
+            return False, "commit pin does not resolve to a regular file blob"
+        blob = subprocess.run(["git", "-C", str(root), "show", f"{commit}:{relative}"], capture_output=True)
+        checks.append(blob.returncode == 0 and _sha256_bytes(blob.stdout) == sha256_file(path))
+    return bool(checks) and all(checks), "content pins match" if checks and all(checks) else "missing or mismatched content pin"
 
 
 def _datalad_get(path, run_root):
@@ -247,38 +279,53 @@ def _datalad_get(path, run_root):
 
 
 def standards_gate(run_fm, graph, rokb, run_root, *, offline, no_gate):
-    """Enforce: each input pinned/available AND valid against its standard.
-    Returns (passed, gate_dict, inputs_summary)."""
     gate, inputs_summary = {}, []
-    passed = True
-    for pin in run_fm.get("inputs") or []:
-        nid = pin.get("node")
+    pins = run_fm.get("inputs")
+    if not isinstance(pins, list) or not pins:
+        return False, {"error": "non-empty input pins required"}, []
+    passed, seen, checked_standards = True, set(), set()
+    for pin in pins:
+        if not isinstance(pin, dict) or pin.get("node") not in graph:
+            return False, {"error": "input node missing or unknown"}, inputs_summary
+        nid = pin["node"]
+        if nid in seen:
+            return False, {"error": "duplicate input node"}, inputs_summary
+        seen.add(nid)
         fpath = _resolve_input_path(pin, graph, run_root)
-        present = bool(fpath and Path(fpath).exists())
-        if not present and not offline:
-            present = _datalad_get(fpath, run_root) if fpath else False
-        entry = {"node": nid, "path": str(fpath) if fpath else None, "pinned": present}
-        # pin verification (annex-key exact match needs datalad; otherwise note it)
-        if present and pin.get("datalad-annex-key") and shutil.which("datalad") is None:
-            entry["pin-note"] = "present (annex-key unverified without datalad)"
+        present = bool(fpath and Path(fpath).is_file())
+        if not present and not offline and fpath:
+            present = _datalad_get(fpath, run_root) and Path(fpath).is_file()
+        entry = {"node": nid, "path": str(fpath) if fpath else None, "available": present, "pinned": False}
         if not present:
-            entry["available"] = False
-            inputs_summary.append({**entry, "available": False,
-                                   "data-liveness": "unreachable" if offline else "missing"})
-            passed = False
-            continue
-        # standard validation (delegated)
-        std_id = pin.get("conforms-to")
-        if std_id and not no_gate:
-            std_fm = graph.get(std_id, (None, {}))[1]
-            valid, detail = _run_validator(std_fm, fpath, rokb, run_root)
-            entry.update({"standard": std_id, "valid": valid, "validator": detail})
-            if not valid:
-                passed = False
+            entry["data-liveness"] = "unreachable" if offline else "missing"
+        else:
+            entry["pinned"], entry["pin-check"] = _verify_pin(pin, fpath)
+            entry["observed-hash"] = sha256_file(fpath)
+        valid = True
+        standards = {e["target"] for e in graph[nid][1].get("edges", []) if e.get("type") == "conforms-to"}
+        if pin.get("conforms-to"):
+            standards.add(pin["conforms-to"])
+        if standards and not no_gate:
+            results = {}
+            for std_id in sorted(standards):
+                std = graph.get(std_id, (None, {}))[1]
+                if not present or std.get("type") != "standard":
+                    ok, detail = False, "standard or input unavailable"
+                else:
+                    ok, detail = _run_validator(std, fpath, rokb, run_root)
+                results[std_id] = {"valid": ok, "validator": detail}
+                valid = valid and ok
+                checked_standards.add(std_id)
+            entry.update({"standards": results, "valid": valid})
         elif no_gate:
-            entry.update({"standard": std_id, "valid": None, "validator": "skipped (--no-gate)"})
+            entry.update({"standards": sorted(standards), "valid": None, "validator": "skipped (--no-gate)"})
+        passed = passed and present and entry["pinned"] and valid
         gate[nid] = entry
         inputs_summary.append(entry)
+    required = {e["target"] for e in run_fm.get("edges", []) if e.get("type") == "requires-standard"}
+    if not no_gate and required - checked_standards:
+        return False, {**gate, "error": "required standards need explicit input conformance bindings",
+                       "unbound-standards": sorted(required - checked_standards)}, inputs_summary
     return passed, gate, inputs_summary
 
 
@@ -286,180 +333,279 @@ def standards_gate(run_fm, graph, rokb, run_root, *, offline, no_gate):
 # execution
 # ─────────────────────────────────────────────────────────────────────────────
 def execute(run_fm, run_root, *, no_container):
-    """Replay the command, pinned to the container digest when possible.
-    Returns (exit_code, resolved_via, stderr_tail)."""
-    cmd = run_fm["command"]
-    digest = run_fm.get("container-digest")
-    image = run_fm.get("container-image")
-    have_datalad = shutil.which("datalad") is not None
-    if digest and image and have_datalad and not no_container:
-        full = ["datalad", "containers-run", "-n", f"{image}@{digest}", "--", *cmd.split()]
-        rc = subprocess.run(full, cwd=str(run_root), capture_output=True, text=True)
-        return rc.returncode, "datalad containers-run", rc.stderr[-2000:]
-    if have_datalad and not no_container and digest:
-        # datalad recorded but containers-run unavailable: still get provenance capture
-        rc = subprocess.run(["datalad", "run", "--", *cmd.split()],
-                            cwd=str(run_root), capture_output=True, text=True)
-        return rc.returncode, "datalad run (no container pin enforced)", rc.stderr[-2000:]
-    rc = subprocess.run(cmd, shell=True, cwd=str(run_root), capture_output=True, text=True)
-    via = "host subprocess (--no-container)" if no_container else "host subprocess (no container/datalad available)"
-    return rc.returncode, via, rc.stderr[-2000:]
+    """Use a registered, hash-checked local container image or explicit host mode.
+
+    container-image names a DataLad registration, not an OCI image URL.
+    container-digest is the raw SHA-256 of its local image file (e.g. SIF).
+    """
+    command = run_fm.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return 1, "not executed", "non-empty command required"
+    argv = shlex.split(command)
+    if no_container:
+        rc = subprocess.run(argv, cwd=run_root, capture_output=True, text=True)
+        return rc.returncode, "host subprocess (--no-container; environment unpinned)", rc.stderr[-2000:]
+    name, digest = run_fm.get("container-image"), run_fm.get("container-digest")
+    if not name or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        return 1, "not executed", "registered container name and full SHA-256 required; use --no-container explicitly for host execution"
+    if not shutil.which("datalad"):
+        return 1, "not executed", "DataLad unavailable; no host fallback"
+    listing = subprocess.run(["datalad", "-f", "json", "containers-list", "-d", str(run_root)],
+                             cwd=run_root, capture_output=True, text=True)
+    if listing.returncode:
+        return 1, "not executed", "container registration unavailable (install datalad-container); no host fallback"
+    records = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
+    records = [r for r in records if r.get("name") == name and r.get("status") == "ok"]
+    if len(records) != 1 or not records[0].get("path"):
+        return 1, "not executed", "registered container not found or ambiguous"
+    image = _norm(records[0]["path"], run_root)
+    if not image.is_file() or sha256_file(image) != digest:
+        return 1, "not executed", "container file unavailable or digest mismatch"
+    full = ["datalad", "containers-run", "-d", str(run_root), "-n", name, "--explicit"]
+    for pin in run_fm["inputs"]:
+        full += ["--input", pin["path"]]
+    for pin in run_fm["outputs"]:
+        full += ["--output", pin["output-path"]]
+    rc = subprocess.run(full + ["--", *argv], cwd=run_root, capture_output=True, text=True)
+    return rc.returncode, "datalad containers-run (image file SHA-256 checked)", rc.stderr[-2000:]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # verification tiers
 # ─────────────────────────────────────────────────────────────────────────────
+def _number(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def _tol_pass(obs, exp, tol):
-    rel = tol.get("rel", 0.0) if tol else 0.0
-    ab = tol.get("abs", 0.0) if tol else 0.0
-    return abs(obs - exp) <= max(ab, rel * abs(exp))
+    if not _number(obs) or not _number(exp) or not isinstance(tol, dict):
+        return False
+    if any(k not in ("rel", "abs") or not _number(v) or v < 0 for k, v in tol.items()):
+        return False
+    difference = abs(obs - exp)
+    bound = max(tol.get("abs", 0.0), tol.get("rel", 0.0) * abs(exp))
+    return _number(difference) and _number(bound) and difference <= bound
 
 
 def verify_byte_identical(pin, run_root):
+    tier = pin.get("tier", "byte-identical")
+    result = {"node": pin.get("node"), "tier": tier, "passed": False}
     out = _norm(pin.get("output-path"), run_root)
-    if not out or not Path(out).exists():
-        return {"node": pin.get("node"), "passed": False, "reason": "output not on disk", "tier": "byte-identical"}
-    observed, norm = normalized_hash(out)
+    if not out or not out.is_file():
+        return {**result, "reason": "output not on disk"}
+    observed, norm = normalized_hash(out) if tier == "normalized-content" else (sha256_file(out), "none")
+    if tier == "normalized-content" and (norm.startswith("raw") or norm == "none"):
+        return {**result, "reason": "requested normalization unavailable", "normalization": norm}
     expected = pin.get("expected-hash")
-    return {"node": pin.get("node"), "tier": "byte-identical", "expected": expected,
-            "observed": observed, "normalization": norm, "passed": observed == expected}
+    return {**result, "expected": expected, "observed": observed, "normalization": norm,
+            "passed": bool(expected) and observed == expected}
 
 
 def verify_numeric(pin, run_root, tolerance):
-    """Compare re-derived numbers in the output to the recorded expected-values."""
     out = _norm(pin.get("output-path"), run_root)
-    results = []
-    if not out or not Path(out).exists():
-        return [{"node": pin.get("node"), "passed": False, "reason": "output not on disk"}]
+    expected = pin.get("expected-values")
+    failure = [{"node": pin.get("node"), "passed": False, "reason": "non-empty finite expected values and JSON object required"}]
+    if not out or not out.is_file() or not isinstance(expected, dict) or not expected:
+        return failure
     try:
-        produced = json.loads(Path(out).read_text())
-    except Exception as e:
-        return [{"node": pin.get("node"), "passed": False, "reason": f"output not JSON: {e}"}]
-    expected_values = pin.get("expected-values") or {}
-    qtol = (tolerance or {}).get("quantities") or {}
-    default_tol = (tolerance or {}).get("default") or {}
-    for name, exp in expected_values.items():
-        obs = produced.get(name)
-        tol = qtol.get(name, default_tol)
-        ok = isinstance(obs, (int, float)) and _tol_pass(float(obs), float(exp), tol)
-        results.append({"node": pin.get("node"), "quantity": name, "expected": exp, "observed": obs,
-                        "abs-diff": (abs(obs - exp) if isinstance(obs, (int, float)) else None),
-                        "tol": tol, "passed": bool(ok)})
-    return results
-
-
-def verify_structural(run_fm, graph):
-    """For agent-inferred runs: cited nodes must exist and (best-effort) hold the
-    cited values; retriever-manifest, if present, must be self-consistent."""
-    trace = run_fm.get("reasoning-trace") or {}
-    # find an emitted finding's trace if the run-record itself carries none
-    if not trace:
-        for e in run_fm.get("edges") or []:
-            if e.get("type") == "emits" and e.get("target") in graph:
-                trace = (graph[e["target"]][1].get("reasoning-trace") or {})
-                break
-    accessed = trace.get("nodes-accessed") or []
+        produced = json.loads(out.read_text())
+    except (ValueError, OSError):
+        return failure
+    if not isinstance(produced, dict) or not isinstance(tolerance, dict):
+        return failure
+    qtol = tolerance.get("quantities", {})
+    if not isinstance(qtol, dict):
+        return failure
     checks = []
-    all_exist = True
-    for nid in accessed:
-        exists = nid in graph
-        all_exist = all_exist and exists
-        checks.append({"cited-node": nid, "exists": exists})
-    manifest_ok = True
-    if run_fm.get("retriever-manifest"):
-        manifest_ok = bool(run_fm["retriever-manifest"].get("index-sha") or run_fm["retriever-manifest"].get("embedding-model"))
-    return {"cited-nodes": checks, "all-cited-exist": all_exist,
-            "retriever-manifest-ok": manifest_ok, "passed": all_exist and manifest_ok}
+    for name, exp in expected.items():
+        obs = produced.get(name)
+        tol = qtol.get(name, tolerance.get("default", {}))
+        checks.append({"node": pin.get("node"), "quantity": name, "expected": exp,
+                       "observed": obs, "tol": tol, "passed": _tol_pass(obs, exp, tol)})
+    return checks
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# the engine
-# ─────────────────────────────────────────────────────────────────────────────
-def run_node(rokb, node_id, *, mode="run", offline=False, no_container=False, no_gate=False, graph=None):
-    """Execute (and, in reproduce mode, verify) a single run-record. Returns a RunVerdict."""
-    rokb = Path(rokb)
-    run_root = rokb.parent if rokb.parent != rokb else rokb   # project root: code/, inputs/, out/ live here
-    graph = graph or load_graph(rokb)
+def verify_structural(run_fm, graph, run_root=None):
+    """Check fresh output traces and cited numeric evidence, not prose entailment.
+
+    Each output JSON must carry reasoning-trace. metrics-cited maps a metric name
+    to {node, value, tolerance?}; values are checked against the cited input JSON.
+    Unsupported trace-only/prose assertions cannot receive structural acceptance.
+    """
+    result = {"passed": False, "scope": "output citations and numeric evidence only; scientific interpretation is not verified", "checks": []}
+    if run_root is None or not run_fm.get("outputs"):
+        return {**result, "reason": "fresh output artifacts and run root required"}
+    inputs = {p["node"]: p for p in run_fm.get("inputs", [])}
+    for output in run_fm["outputs"]:
+        path = _norm(output.get("output-path"), run_root)
+        try:
+            data = json.loads(path.read_text())
+            trace = data.get("reasoning-trace")
+        except (OSError, ValueError, AttributeError):
+            return {**result, "reason": "output must be JSON with a reasoning trace"}
+        if not isinstance(trace, dict):
+            return {**result, "reason": "missing output reasoning trace"}
+        accessed, metrics = trace.get("nodes-accessed"), trace.get("metrics-cited")
+        if (not isinstance(accessed, list) or not accessed or
+                any(not isinstance(n, str) or n not in graph or n not in inputs for n in accessed) or
+                not isinstance(metrics, dict) or not metrics or
+                any(not isinstance(trace.get(k), str) or not trace[k].strip()
+                    for k in ("model-identifier", "timestamp", "evidence-summary"))):
+            return {**result, "reason": "incomplete trace, unknown citation, or citation is not a pinned input"}
+        for metric, claim in metrics.items():
+            if not isinstance(claim, dict) or claim.get("node") not in accessed:
+                return {**result, "reason": "numeric citations require {node, value, tolerance?}"}
+            source = _resolve_input_path(inputs[claim["node"]], graph, run_root)
+            try:
+                evidence = json.loads(source.read_text())
+                observed = evidence.get(metric)
+            except (OSError, ValueError, AttributeError):
+                return {**result, "reason": "cited source is not a readable JSON object"}
+            result["checks"].append({"node": claim["node"], "metric": metric,
+                                     "observed": observed, "claimed": claim.get("value"),
+                                     "passed": _tol_pass(observed, claim.get("value"), claim.get("tolerance", {}))})
+        # A retriever manifest needs a verifiable snapshot, not merely a model name.
+        manifest = trace.get("retriever-manifest", run_fm.get("retriever-manifest"))
+        if manifest is not None:
+            return {**result, "reason": "retriever snapshot verification is not implemented"}
+    result["passed"] = bool(result["checks"]) and all(c["passed"] for c in result["checks"])
+    return result
+
+
+def project_root(rokb, explicit=None):
+    if explicit is not None:
+        return Path(explicit).resolve()
+    rokb = Path(rokb).resolve()
+    # Preserve the documented .../rokb layout; an index at the project root also works.
+    return rokb.parent if rokb.name == "rokb" else rokb
+
+
+def _tier(fm, pin):
+    default = {"deterministic": "byte-identical", "stochastic": "numeric-tolerance", "agent-inferred": "structural"}
+    return pin.get("tier", default[fm["provenance-mode"]])
+
+
+def run_node(rokb, node_id, *, mode="run", offline=False, no_container=False, no_gate=False, graph=None, run_root=None):
+    """Execute a trusted local run-record; never treat missing checks as success."""
+    v = RunVerdict(node=node_id, mode=mode)
+    try:
+        return _run_node(rokb, node_id, v, mode=mode, offline=offline, no_container=no_container,
+                         no_gate=no_gate, graph=graph, run_root=run_root)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        v.verdict, v.notes = "error", str(exc)
+        return v
+
+
+def _run_node(rokb, node_id, v, *, mode, offline, no_container, no_gate, graph, run_root):
+    rokb = Path(rokb).resolve()
+    run_root = project_root(rokb, run_root)
+    graph = load_graph(rokb) if graph is None else graph
+    if mode not in ("run", "reproduce"):
+        raise ValueError("unknown execution mode")
     if node_id not in graph:
-        return RunVerdict(node=node_id, mode=mode, verdict="error", notes="node not in index")
+        raise ValueError("node not in index")
     path, fm = graph[node_id]
-    if fm.get("type") != "run-record":
-        return RunVerdict(node=node_id, mode=mode, verdict="error", notes=f"not a run-record (type={fm.get('type')})")
-    fm["edges"] = fm.get("edges") or []
-    pmode = fm.get("provenance-mode", "deterministic")
-    v = RunVerdict(node=node_id, mode=mode, status=fm.get("status", "?"), provenance_mode=pmode,
-                   command=fm.get("command", ""))
-
-    # 1. Standards gate
-    passed, gate, inputs_summary = standards_gate(fm, graph, rokb, run_root, offline=offline, no_gate=no_gate)
-    v.validation_gate, v.inputs = gate, inputs_summary
+    if fm.get("type") != "run-record" or fm.get("provenance-mode") not in ("deterministic", "stochastic", "agent-inferred"):
+        raise ValueError("valid run-record and provenance mode required")
+    if fm.get("method") not in graph or graph[fm["method"]][1].get("type") != "method":
+        raise ValueError("method must resolve to a method node")
+    outputs = fm.get("outputs")
+    if not isinstance(outputs, list) or not outputs:
+        raise ValueError("non-empty declared outputs required")
+    paths = []
+    for pin in outputs:
+        if not isinstance(pin, dict) or pin.get("node") not in graph or graph[pin["node"]][1].get("type") != "derivative":
+            raise ValueError("output must resolve to a derivative node")
+        if not pin.get("output-path") or _tier(fm, pin) not in ("byte-identical", "normalized-content", "numeric-tolerance", "structural"):
+            raise ValueError("output path and supported verification tier required")
+        paths.append(_norm(pin["output-path"], run_root))
+    if len(set(paths)) != len(paths) or len({p["node"] for p in outputs}) != len(outputs):
+        raise ValueError("duplicate output paths or nodes")
+    v.status, v.provenance_mode, v.command = fm.get("status", "unknown"), fm["provenance-mode"], fm.get("command", "")
+    passed, v.validation_gate, v.inputs = standards_gate(fm, graph, rokb, run_root, offline=offline, no_gate=no_gate)
     if not passed:
-        any_missing = any(not e.get("pinned", True) for e in inputs_summary)
-        v.verdict = "inputs-unavailable" if any_missing else "gate-failed"
-        v.notes = "input unavailable" if any_missing else "standards gate failed"
+        v.verdict = "inputs-unavailable" if any(not p.get("available") for p in v.inputs) else "gate-failed"
+        v.notes = "input availability, content pin or declared standard failed"
         return v
-
-    # 2. Execute
-    exit_code, resolved_via, stderr_tail = execute(fm, run_root, no_container=no_container)
-    v.exit_code = exit_code
-    v.environment = {"container-digest": fm.get("container-digest"), "resolved-via": resolved_via}
-    if exit_code != 0:
-        v.verdict = "error"
-        v.notes = f"command exited {exit_code}: {stderr_tail.strip()[-400:]}"
+    input_paths = {Path(i["path"]).resolve() for i in v.inputs}
+    if input_paths.intersection(paths):
+        raise ValueError("outputs must not overwrite pinned inputs")
+    before = {p: p.stat() if p.exists() else None for p in paths}
+    # Supply resolved explicit inputs to DataLad, including pins whose path is on the node.
+    execution_fm = {**fm, "inputs": [{**p, "path": i["path"]} for p, i in zip(fm["inputs"], v.inputs)]}
+    v.exit_code, via, stderr = execute(execution_fm, run_root, no_container=no_container)
+    v.environment = {"container-digest": fm.get("container-digest"), "resolved-via": via,
+                     "pinned": not no_container and v.exit_code == 0, "standards-bypassed": no_gate}
+    if v.exit_code:
+        v.notes = stderr
         return v
-
-    # 3. Verify / record outputs
+    for pin, path in zip(outputs, paths):
+        if not path.is_file():
+            v.notes = "declared output missing: " + str(pin["output-path"])
+            return v
+        old = before[path]
+        if old and (old.st_ino, old.st_mtime_ns, old.st_size) == (path.stat().st_ino, path.stat().st_mtime_ns, path.stat().st_size):
+            v.notes = "declared output was not refreshed: " + str(pin["output-path"])
+            return v
+        raw = sha256_file(path)
+        h, norm = normalized_hash(path) if _tier(fm, pin) == "normalized-content" else (raw, "none")
+        if _tier(fm, pin) == "normalized-content" and (norm.startswith("raw") or norm == "none"):
+            v.notes = "requested normalization unavailable: " + norm
+            return v
+        v.outputs.append({"node": pin["node"], "output-path": pin["output-path"], "produced-hash": h,
+                          "raw-hash": raw, "normalization": norm, "tier": _tier(fm, pin)})
+    # A command modifying its own inputs invalidates the provenance just checked.
+    if any(sha256_file(i["path"]) != i["observed-hash"] for i in v.inputs):
+        v.notes = "input bytes changed during execution"
+        return v
+    if no_gate:
+        v.verdict, v.notes = "unchecked", "standards bypassed; no verified result"
+        return v
     if mode == "run":
-        for pin in fm.get("outputs") or []:
-            out = _norm(pin.get("output-path"), run_root)
-            if out and Path(out).exists():
-                h, norm = normalized_hash(out)
-                v.outputs.append({"node": pin.get("node"), "produced-hash": h, "normalization": norm,
-                                  "output-path": pin.get("output-path")})
-            else:
-                v.outputs.append({"node": pin.get("node"), "produced-hash": None, "reason": "not on disk"})
-        v.tier = "execute"
-        v.verdict = "executed"
+        structural_outputs = [p for p in outputs if _tier(fm, p) == "structural"]
+        if structural_outputs:
+            check = verify_structural({**fm, "outputs": structural_outputs}, graph, run_root)
+            v.structural_checks = [check]
+            if not check["passed"]:
+                v.verdict, v.notes = "mismatch", "output evidence check failed"
+                return v
+        v.verdict, v.tier = "executed", "execute"
         return v
-
-    # reproduce mode — verify per tier
-    tier = pmode
-    tol = fm.get("reproduction-tolerance")
-    if pmode == "deterministic":
-        v.tier = "byte-identical"
-        v.outputs = [verify_byte_identical(pin if "output-path" in pin else {**pin, "output-path": pin.get("output-path")}, run_root)
-                     for pin in fm.get("outputs") or []]
-        if tol:
-            for pin in fm.get("outputs") or []:
-                v.numeric_checks += verify_numeric(pin, run_root, tol)
-        ok = all(o.get("passed") for o in v.outputs) and all(n.get("passed") for n in v.numeric_checks)
-        v.verdict = "verified" if ok else "mismatch"
-    elif pmode == "stochastic":
-        if tol:
-            v.tier = "numeric-tolerance"
-            for pin in fm.get("outputs") or []:
-                v.numeric_checks += verify_numeric(pin, run_root, tol)
-            ok = bool(v.numeric_checks) and all(n.get("passed") for n in v.numeric_checks)
-            v.verdict = "reproduced-within-tolerance" if ok else "mismatch"
+    checks, tiers = [], set()
+    for pin in outputs:
+        tier = _tier(fm, pin); tiers.add(tier)
+        if tier in ("byte-identical", "normalized-content"):
+            checked = verify_byte_identical({**pin, "tier": tier}, run_root)
+            checks.append(checked["passed"])
+            next(o for o in v.outputs if o["node"] == pin["node"]).update(checked)
+        elif tier == "numeric-tolerance":
+            checked = verify_numeric(pin, run_root, fm.get("reproduction-tolerance", {}))
+            v.numeric_checks.extend(checked); checks.append(all(c["passed"] for c in checked))
         else:
-            sc = verify_structural(fm, graph); v.tier = "structural"
-            v.structural_checks = [sc]; v.verdict = "structurally-valid" if sc["passed"] else "mismatch"
-    else:  # agent-inferred
-        sc = verify_structural(fm, graph); v.tier = "structural"
-        v.structural_checks = [sc]
-        v.verdict = "structurally-valid" if sc["passed"] else "mismatch"
+            checked = verify_structural({**fm, "outputs": [pin]}, graph, run_root)
+            v.structural_checks.append(checked); checks.append(checked["passed"])
+    v.tier = next(iter(tiers)) if len(tiers) == 1 else "mixed"
+    names = {"byte-identical": "verified", "normalized-content": "normalized-match",
+             "numeric-tolerance": "reproduced-within-tolerance", "structural": "structurally-valid", "mixed": "checks-passed"}
+    v.verdict = names[v.tier] if checks and all(checks) else "mismatch"
     return v
 
 
 def order_runs(graph, ids):
     """Order run-records so a run that regenerates another's input comes first
     (a light topological sort over consume/regenerate edges). Stable for the
-    common case; falls back to the given order on a cycle."""
+    common case; rejects cycles and ambiguous producers."""
     produced_by = {}   # output node -> run-record that regenerates it
     for rid in ids:
         for e in graph[rid][1].get("edges") or []:
             if e.get("type") == "regenerates":
-                produced_by[e.get("target")] = rid
+                target = e.get("target")
+                if target in produced_by and produced_by[target] != rid:
+                    raise ValueError("ambiguous producers for output node: " + str(target))
+                produced_by[target] = rid
     deps = {rid: set() for rid in ids}
     for rid in ids:
         for e in graph[rid][1].get("edges") or []:
@@ -473,45 +619,45 @@ def order_runs(graph, ids):
         for rid in ids:
             if rid not in seen and deps[rid] <= seen:
                 ordered.append(rid); seen.add(rid); progressed = True
-        if not progressed:   # cycle / unresolved — append the rest in original order
-            ordered += [r for r in ids if r not in seen]
-            break
+        if not progressed:
+            raise ValueError("cyclic run dependencies")
     return ordered
 
 
 def certify_equivalence(rokb, run_record_a, run_record_b, *, tolerance=None, no_container=False):
-    """Certify `equivalent-to`: run two run-records (each binding a method) and
-    assert their outputs match — byte-identical, or numerically within tolerance.
-    Returns an EquivalenceVerdict. This makes equivalence a CHECKED claim."""
-    rokb = Path(rokb); graph = load_graph(rokb)
-    run_root = rokb.parent if rokb.parent != rokb else rokb
-    fa = graph[run_record_a][1]; fb = graph[run_record_b][1]
-    va = run_node(rokb, run_record_a, mode="run", no_container=no_container, graph=graph)
-    vb = run_node(rokb, run_record_b, mode="run", no_container=no_container, graph=graph)
+    """Compare observed runs on matching inputs; not universal method equivalence."""
+    graph = load_graph(rokb)
+    fa, fb = graph[run_record_a][1], graph[run_record_b][1]
     ev = EquivalenceVerdict(method_a=fa.get("method"), method_b=fb.get("method"))
+    va = run_node(rokb, run_record_a, no_container=no_container, graph=graph)
+    # Snapshot content before B can overwrite an overlapping output path.
+    root = project_root(rokb)
+    values = []
+    for output in va.outputs:
+        try:
+            values.append(json.loads(_norm(output["output-path"], root).read_text()))
+        except (ValueError, OSError):
+            values.append(None)
+    vb = run_node(rokb, run_record_b, no_container=no_container, graph=graph)
     if va.verdict != "executed" or vb.verdict != "executed":
-        ev.notes = f"a={va.verdict}, b={vb.verdict}"; return ev
-    pa = [o.get("output-path") for o in va.outputs]
-    pb = [o.get("output-path") for o in vb.outputs]
-    equiv = True
-    for oa, ob in zip(pa, pb):
-        ha, _ = normalized_hash(_norm(oa, run_root))
-        hb, _ = normalized_hash(_norm(ob, run_root))
-        match = ha == hb
-        cmp = {"a": oa, "b": ob, "hash-match": match}
-        if not match and tolerance:
+        ev.notes = f"a={va.verdict}, b={vb.verdict}"
+        return ev
+    if (not va.outputs or len(va.outputs) != len(vb.outputs) or
+            sorted(i["observed-hash"] for i in va.inputs) != sorted(i["observed-hash"] for i in vb.inputs)):
+        ev.notes = "non-empty equal output counts and identical input content required"
+        return ev
+    for i, (a, b) in enumerate(zip(va.outputs, vb.outputs)):
+        match = a["raw-hash"] == b["raw-hash"]
+        if not match and tolerance is not None:
             try:
-                da = json.loads(_norm(oa, run_root).read_text())
-                db = json.loads(_norm(ob, run_root).read_text())
-                keys = set(da) & set(db)
-                match = all(_tol_pass(float(da[k]), float(db[k]), tolerance.get("default", tolerance))
-                            for k in keys if isinstance(da[k], (int, float)))
-                cmp["numeric-match-within-tolerance"] = match
-            except Exception as e:
-                cmp["error"] = str(e)
-        equiv = equiv and match
-        ev.comparisons.append(cmp)
-    ev.equivalent = equiv
+                da, db = values[i], json.loads(_norm(b["output-path"], root).read_text())
+                match = (isinstance(da, dict) and isinstance(db, dict) and bool(da) and set(da) == set(db)
+                         and all(_tol_pass(da[k], db[k], tolerance.get("default", tolerance)) for k in da))
+            except (ValueError, OSError, TypeError):
+                match = False
+        ev.comparisons.append({"a": a["output-path"], "b": b["output-path"], "passed": bool(match)})
+    ev.equivalent = bool(ev.comparisons) and all(c["passed"] for c in ev.comparisons)
+    ev.notes = "observed outputs on these pinned inputs only"
     return ev
 
 
@@ -522,9 +668,8 @@ def write_verdict_back(rokb, node_id, verdict: RunVerdict):
     """Write `validation-gate` + `replay-verdict` (and, for forward runs, status +
     produced hashes) back into the sidecar, preserving the body."""
     path, fm = load_graph(rokb)[node_id]
-    text = Path(path).read_text()
-    _, fmtext, body = text.split("---\n", 2)
-    fm = yaml.safe_load(fmtext) or {}
+    is_json = Path(path).read_text().startswith("{")
+    fm, body = read_sidecar(path)
     fm["validation-gate"] = verdict.validation_gate
     fm["replay-verdict"] = {
         "verdict": verdict.verdict, "tier": verdict.tier, "runner-version": RUNNER_VERSION,
@@ -537,28 +682,40 @@ def write_verdict_back(rokb, node_id, verdict: RunVerdict):
         produced = {o["node"]: o.get("produced-hash") for o in verdict.outputs if o.get("produced-hash")}
         default_mode = fm.get("provenance-mode", "deterministic")
         for pin in fm.get("outputs") or []:
-            # Only pin an expected-hash for byte-identical outputs. A stochastic /
-            # agent output is NOT hash-reproducible, so recording its hash would be
-            # a false pin — those tiers verify by tolerance / structure instead.
+            # Establish only a missing baseline for the declared hash tier;
+            # tolerance and structural tiers have separate expectations.
             tier = pin.get("tier") or ("byte-identical" if default_mode == "deterministic" else None)
-            if tier == "byte-identical" and pin.get("node") in produced and not pin.get("expected-hash"):
+            if tier in ("byte-identical", "normalized-content") and pin.get("node") in produced and not pin.get("expected-hash"):
                 pin["expected-hash"] = produced[pin["node"]]
-    Path(path).write_text("---\n" + yaml.safe_dump(fm, sort_keys=False) + "---\n" + body)
+    if verdict.verdict not in SUCCESS:
+        fm["status"] = "failed"
+    if is_json:
+        Path(path).write_text(json.dumps(_json_safe(fm), indent=2, allow_nan=False) + "\n")
+    else:
+        Path(path).write_text("---\n" + yaml.safe_dump(fm, sort_keys=False) + "---\n" + body)
+
+
+def _json_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
 def write_manifest(verdicts, path):
-    """Write the provenance manifest JSON (superset of verification-report.json)."""
-    runs = [v.to_dict() for v in verdicts]
-    summary = {}
+    """Report separate execution and reproduction counts; no pooled success rate."""
+    summary = {"total": len(verdicts), "execution": {}, "reproduction": {}}
     for v in verdicts:
-        summary[v.verdict] = summary.get(v.verdict, 0) + 1
-    total = len(verdicts)
-    good = sum(summary.get(k, 0) for k in
-               ("executed", "verified", "reproduced-within-tolerance", "structurally-valid"))
-    summary["total"] = total
-    summary["reproducibility-rate-pct"] = round(good / total * 100, 1) if total else 0.0
-    manifest = {"glimmer-run-version": RUNNER_VERSION, "summary": summary, "runs": runs}
-    Path(path).write_text(json.dumps(manifest, indent=2))
+        bucket = summary["execution" if v.mode == "run" else "reproduction"]
+        bucket[v.verdict] = bucket.get(v.verdict, 0) + 1
+    manifest = {"glimmer-run-version": RUNNER_VERSION, "summary": summary, "runs": [v.to_dict() for v in verdicts]}
+    manifest = _json_safe(manifest)
+    Path(path).write_text(json.dumps(manifest, indent=2, allow_nan=False) + "\n")
     return manifest
 
 
@@ -575,35 +732,43 @@ def main():
     ap.add_argument("--offline", action="store_true", help="do not datalad-get; treat missing inputs as unavailable")
     ap.add_argument("--no-container", action="store_true", help="run on the host instead of the pinned container")
     ap.add_argument("--no-gate", action="store_true", help="skip the standards gate (flagged dirty)")
+    ap.add_argument("--run-root", help="explicit working directory (default: parent of rokb/, otherwise index directory)")
     args = ap.parse_args()
 
     rokb = Path(args.rokb)
-    graph = load_graph(rokb)
+    try:
+        graph = load_graph(rokb)
+    except (OSError, ValueError, KeyError) as exc:
+        ap.error(str(exc))
     if args.node_id == "all":
         targets = [nid for nid, (_, fm) in graph.items() if fm.get("type") == "run-record"]
     else:
         targets = [t.strip() for t in args.node_id.split(",") if t.strip()]
-    targets = order_runs(graph, [t for t in targets if t in graph]) + [t for t in targets if t not in graph]
+    targets = list(dict.fromkeys(targets))
+    try:
+        targets = order_runs(graph, [t for t in targets if t in graph]) + [t for t in targets if t not in graph]
+    except ValueError as exc:
+        ap.error(str(exc))
 
     verdicts = []
     for nid in targets:
         v = run_node(rokb, nid, mode=args.mode, offline=args.offline,
-                     no_container=args.no_container, no_gate=args.no_gate, graph=graph)
+                     no_container=args.no_container, no_gate=args.no_gate, graph=graph, run_root=args.run_root)
         verdicts.append(v)
         mark = {"executed": "▶", "verified": "✓", "reproduced-within-tolerance": "≈",
-                "structurally-valid": "≋"}.get(v.verdict, "✗")
+                "structurally-valid": "≋", "normalized-match": "≈", "checks-passed": "✓"}.get(v.verdict, "✗")
         print(f"  {mark} {nid}: {v.verdict}" + (f" [{v.tier}]" if v.tier else "")
               + (f" — {v.notes}" if v.notes else ""))
-        if args.write_verdict:
+        if args.write_verdict and nid in graph:
             write_verdict_back(rokb, nid, v)
             graph = load_graph(rokb)  # refresh after writeback
 
     if args.manifest:
         m = write_manifest(verdicts, args.manifest)
-        print(f"\nManifest: {args.manifest}  (reproducibility-rate {m['summary']['reproducibility-rate-pct']}%)")
+        print(f"\nManifest: {args.manifest}  {json.dumps(m['summary'])}")
 
-    bad = [v for v in verdicts if v.verdict in ("mismatch", "gate-failed", "inputs-unavailable", "error")]
-    sys.exit(1 if bad else 0)
+    bad = [v for v in verdicts if v.verdict not in SUCCESS]
+    sys.exit(1 if bad or not verdicts else 0)
 
 
 if __name__ == "__main__":

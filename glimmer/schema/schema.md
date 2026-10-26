@@ -334,7 +334,7 @@ Required fields:
 - `inputs` — list of **input-pins** `{node, datalad-annex-key|datalad-commit-sha, conforms-to?, role}`; the content pin is required unless `status: planned`
 - `outputs` — list of **output-pins** `{node (→ a `derivative`), expected-hash, output-path, tier?}`
 
-Key optional fields: `container-image` / `container-digest` (env pin, replayed via `datalad containers-run`), `reproduction-tolerance` (`{default:{rel,abs}, quantities:{<name>:{rel,abs}}}` for the numeric tier), `produced-by-agent` + `reasoning-trace` (required together, for agent/structural runs), `retriever-manifest` (structural tier). The runner writes back two blocks: `validation-gate` (per-input pinned+standard-valid result) and `replay-verdict` (the per-output verdict).
+Key optional fields: `container-image` / `container-digest` (registered DataLad container name and raw SHA-256 of its local image file, replayed via `datalad containers-run`), `reproduction-tolerance` (`{default:{rel,abs}, quantities:{<name>:{rel,abs}}}` for the numeric tier), `produced-by-agent` + `reasoning-trace` (required together, for agent/structural runs), `retriever-manifest` (structural tier). The runner writes back two blocks: `validation-gate` (per-input pinned+standard-valid result) and `replay-verdict` (the per-output verdict).
 
 Canonical edges:
 - `reruns` → `method` (the method this run executes)
@@ -342,14 +342,15 @@ Canonical edges:
 - `regenerates` → `derivative` (an output — mirrors `outputs[].node`; optional inverse `regenerated-by` on the derivative)
 - `emits` → `finding` (an interpretation this run produced)
 - `tests-hypothesis` / `addresses-concept` → `concept` (loop linkage: ties the run to the question it tests)
-- `requires-standard` → `standard` (inputs/outputs must conform; **gated at runtime**)
+- `requires-standard` → `standard` (must bind to input conformance declarations; unbound requirements fail at runtime)
 
-**The three verification tiers** (chosen by `provenance-mode`, overridable per output-pin via `tier`):
-- **byte-identical** (`deterministic`) — re-execute and assert the output hash matches, after NIfTI/GIFTI header normalization so two *correct* re-runs are not flagged on volatile header bytes.
+**Output verification tiers** (chosen by `provenance-mode`, overridable per output-pin via `tier`):
+- **byte-identical** (`deterministic` default) — compare raw output SHA-256.
+- **normalized-content** (explicit output tier) — compare the documented normalized representation; report `normalized-match`, not byte identity.
 - **numeric-within-tolerance** (`stochastic` with `reproduction-tolerance`) — re-derive a published number from source and assert `abs(obs−exp) ≤ max(abs, rel·|exp|)`. An empty tolerance means exact equality.
-- **structural** (`agent-inferred`) — the honest analogue for LLM/stochastic outputs (see [`docs/agent-protocol.md`](../../docs/agent-protocol.md)): the `reasoning-trace` must cite real nodes, those nodes must contain the claimed values, and the `retriever-manifest` (if any) must match.
+- **structural** (`agent-inferred`) — the honest analogue for LLM/stochastic outputs (see [`docs/agent-protocol.md`](../../docs/agent-protocol.md)): the fresh output JSON must carry a nonempty `reasoning-trace` with supported numeric citations matching pinned input JSON. Prose entailment and scientific validity are not verified. Retriever snapshots are currently unsupported and fail explicitly. See the runner documentation for the executable trace format.
 
-**The standards gate.** A run-record only *references* the standards its inputs must satisfy (via input-pin `conforms-to` / the `requires-standard` edge). Before executing, the runner enforces that each input is **pinned AND valid**, delegating the actual check to the standard's `validator` hint (e.g. `bids-validator`) or falling back to `glimmer validate`. The run-record never reimplements validation; it carries the requirement, and the runner records the outcome in `validation-gate`. A failed gate yields verdict `gate-failed` and **no execution**.
+**The standards gate.** A run-record only *references* the standards its inputs must satisfy (via input-pin or input-node `conforms-to`; `requires-standard` must bind to those inputs). Before executing, the runner enforces that each input is **pinned AND valid**, delegating the actual check to the standard's `validator` hint (e.g. `bids-validator`); unavailable or missing declared validators fail. The run-record never reimplements validation; it carries the requirement, and the runner records the outcome in `validation-gate`. A failed gate yields verdict `gate-failed` and **no execution**.
 
 Complete example (deterministic tier, executed):
 
@@ -364,7 +365,7 @@ method: method-numpy-mean
 command: "python code/compute_mean.py inputs/signal.npy out/mean.json"
 provenance-mode: deterministic
 status: executed
-container-image: "python:3.11-slim"
+container-image: "registered-python-environment"
 container-digest: "sha256:9f2c..."
 inputs:
   - {node: dataset-synth-signal, datalad-annex-key: "MD5E-s4096--3c1e...", conforms-to: standard-synth-signal-v1, role: input-signal}
