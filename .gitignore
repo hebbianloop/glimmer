@@ -14,3 +14,7 @@ glimmer/figures/
 # OS junk
 .DS_Store
 examples/*/rokb-staging/
+
+# Packaging outputs
+build/
+dist/

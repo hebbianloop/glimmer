@@ -196,7 +196,7 @@ finding:
     produced-by-agent: string                   # model id + version OR human persona name
     reasoning-trace:                            # REQUIRED when produced by an agent
       nodes-accessed:   [list-of-strings]
-      metrics-cited:    map                     # {metric-name: rationale}
+      metrics-cited:    map                     # descriptive rationale; executable structural outputs use {metric: {node, value, tolerance?}}
       evidence-summary: string
       model-identifier: string
       timestamp:        datetime
@@ -428,7 +428,7 @@ program:
 #   {node: <derivative id>,                    # MUST resolve to a derivative node (mirror with a `regenerates` edge)
 #    expected-hash: "sha256:…",                # the recorded output-hash this run reproduces
 #    output-path: <relative path>,
-#    tier: byte-identical|numeric-tolerance|structural}   # optional per-output override of the mode default
+#    tier: byte-identical|normalized-content|numeric-tolerance|structural}   # optional per-output override of the mode default
 # ─────────────────────────────────────────────────────────────────────────────
 run-record:
   inherits: _common
@@ -440,8 +440,8 @@ run-record:
     inputs:            [list-of-input-pins]      # see header; pins required unless status=planned
     outputs:           [list-of-output-pins]     # see header; bind derivative node-ids + expected hash
   optional:
-    container-image:   string                   # e.g., "python:3.11-slim"
-    container-digest:  string                   # sha256 env pin; replayed via `datalad containers-run`
+    container-image:   string                   # registered DataLad container name
+    container-digest:  string                   # raw SHA-256 of registered local image file; runner checks bytes
     workflow-definition-sha: string
     parameters:        map
     parameters-hash:   sha256

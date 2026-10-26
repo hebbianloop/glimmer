@@ -1,85 +1,71 @@
-# Synthetic Provenance — the executable loop + three verification tiers
+# Synthetic provenance: portable verifier fixture
 
-The smallest worked example of Glimmer **proactive provenance** (schema v0.6.0): a
-`run-record` is the executable unit of the agentic loop, and `glimmer run` /
-`glimmer rerun` (the node runner) gate inputs on their standards, replay the recorded
-command, and verify outputs at the right fidelity tier. Everything here is **synthetic**
-— no real data, no FSL, no DataLad install — so it runs on a bare laptop with only
-PyYAML. (DataLad / container / nibabel paths are feature-detected and degrade gracefully,
-recording the degradation honestly in the verdict.)
+This example checks runner behavior with synthetic data. It is not an empirical
+neuroimaging result or an agent benchmark. The summary is a Python script; the
+“classifier” emits a fixed accuracy plus random jitter, without training a model.
 
-See [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md) for the spec.
+## Fresh checkout
 
-## The graph
-
-A `concept` (the hypothesis) is decomposed into runnable `run-record`s, each tied back
-to the concept via `tests-hypothesis` / `addresses-concept`. Running them produces
-`derivative`s and a `finding` that closes the loop:
-
-```
-concept-mean-exceeds-threshold
-   ├─ run-synth-mean          (deterministic)  → derivative-synth-mean        [byte-identical]
-   ├─ run-synth-mean-fast     (deterministic)  → derivative-synth-mean-fast   [byte-identical, equivalent-to]
-   ├─ run-synth-classifier    (stochastic)     → derivative-synth-accuracy    [numeric-within-tolerance]
-   └─ run-synth-agent-summary (agent-inferred) → derivative-synth-summary     [structural]
-                                                  └─ emits finding-synth-summary ─ addresses-concept ┘
-   (run-synth-gate-fail        — negative test: malformed input trips the standards gate)
-```
-
-Each input declares `conforms-to: standard-synth-signal-v1`, whose `validator` hint
-(`code/validate_signal.py`) the runner's **pre-run gate** executes. Inputs must be both
-**pinned and valid** before any command runs.
-
-## Run it
+From the repository root, with Python 3.10 or newer:
 
 ```bash
-# from the repo root
-python -m glimmer.tools.cli validate examples/synthetic-provenance/rokb
-
-GOOD=run-synth-mean,run-synth-mean-fast,run-synth-classifier,run-synth-agent-summary
-
-# forward execution: gate → replay → record (advances status ready → executed,
-# writes validation-gate + replay-verdict back into the sidecars)
-python -m glimmer.tools.cli run examples/synthetic-provenance/rokb $GOOD --write-verdict
-
-# reproduction: re-execute and verify each output at its tier
-python -m glimmer.tools.cli rerun examples/synthetic-provenance/rokb $GOOD \
-    --manifest examples/synthetic-provenance/manifest.json
+python -m venv .venv
+. .venv/bin/activate
+pip install .
+python examples/synthetic-provenance/smoke.py
 ```
 
-Expected reproduction verdicts: `verified` (byte-identical) ×2,
-`reproduced-within-tolerance` (numeric), `structurally-valid` (structural) —
-`reproducibility-rate 100%`.
+The installed CLI smoke test builds the entire graph from committed
+`graph-template.json` and `inputs/`, runs three numeric/hash examples, pins their
+observed products for the summary stage, runs the summary, and checks rejection
+of malformed input and implicit host fallback. No pre-existing `rokb/` or cached
+outputs are required. It reports two normalized matches, one numeric-tolerance
+pass and one structural pass. These are distinct guarantees, not “100% scientific
+reproducibility.” Validation has two advisory warnings for input datasets without
+`produced-by` edges; no schema errors are permitted.
 
-## The negative tests (the guarantees, demonstrated)
+## Individual steps
 
 ```bash
-# standards gate: malformed input is caught BEFORE execution → gate-failed, exit 1
-python -m glimmer.tools.cli run examples/synthetic-provenance/rokb run-synth-gate-fail
-python -m glimmer.tools.cli run examples/synthetic-provenance/rokb run-synth-gate-fail --no-gate   # bypass, flagged dirty
+python examples/synthetic-provenance/emit_graph.py
+glimmer validate examples/synthetic-provenance/rokb
+# validate exits 2 for the two advisory input-dataset warnings.
 
-# tamper: corrupt an expected-hash → mismatch, exit 1
-# offline: hide an input and pass --offline → inputs-unavailable (never a false pass)
+glimmer rerun examples/synthetic-provenance/rokb \
+  run-synth-mean,run-synth-mean-fast,run-synth-classifier \
+  --no-container --offline --manifest /tmp/glimmer-positive.json
+
+python examples/synthetic-provenance/emit_graph.py --pin-summary-inputs
+glimmer rerun examples/synthetic-provenance/rokb run-synth-agent-summary \
+  --no-container --offline --manifest /tmp/glimmer-summary.json
+
+# Expected exit 1; no output should be produced.
+glimmer run examples/synthetic-provenance/rokb run-synth-gate-fail \
+  --no-container --offline
 ```
 
-## Equivalence certification (method registry, v0.6 affordance)
+`--pin-summary-inputs` records hashes of the actual upstream files. It does not
+certify their provenance. Re-running the stochastic stage changes its bytes and
+requires explicitly pinning the new products before running the summary. The
+initial summary run is `planned` and cannot execute without those pins.
 
-`method-numpy-mean` and `method-numpy-mean-fast` both `implement` the cross-project
-pattern `glimmer-methods:mean-of-series` and are linked `equivalent-to`. The runner
-**certifies** that claim by output-match rather than taking it on faith:
+`--no-container` is deliberate: the portable fixture runs on the host and records
+an unpinned environment. Real container-runtime validation is separate. `all`
+includes the deliberate negative case and unprepared downstream runs; it is not
+the positive benchmark set.
+
+## Evidence and tests
 
 ```bash
-python -c "from glimmer.tools.run import certify_equivalence; \
-print(certify_equivalence('examples/synthetic-provenance/rokb','run-synth-mean','run-synth-mean-fast').to_dict())"
-# → equivalent: true
+python -m unittest discover -s tests -v
+python -c "from glimmer.tools.run import certify_equivalence; print(certify_equivalence('examples/synthetic-provenance/rokb', 'run-synth-mean', 'run-synth-mean-fast', no_container=True).to_dict())"
 ```
 
-## Files
+Tests include wrong/missing pins, unavailable validators, missing/stale outputs,
+empty and false traces, non-finite numeric values, dependency cycles, container
+fallback, equivalence failures and raw-versus-normalized hashing. See
+[the runner documentation](../../docs/proactive-provenance.md) for supported
+formats and limits.
 
-- `code/` — the analysis scripts + the standard's validator stub (`validate_signal.py`).
-- `inputs/signal.json` — the pinned, standard-conformant input (`signal_bad.json` is the
-  malformed negative-test input).
-- `rokb/` — the validatable RO-KB (datasets, methods, standards, derivatives, findings,
-  run-records) + a local `synthetic` profile.
-- `emit_graph.py` — rebuilds `rokb/_glimmer-index.json` from the sidecars on disk.
-- `out/` — transient run products (git-ignored; regenerated by `glimmer run`).
+Generated `rokb/`, `out/` and manifests are ignored. Rebuilding restores the
+fixture's authored graph; use a separate project for real research records.
