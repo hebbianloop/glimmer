@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""verify.py — verify the Glimmer trace by re-running cited methods.
+"""Check existing derivative files against hashes recorded in their sidecars.
 
-For each `derivative` node in the RO-KB:
-  1. Read the cited `method` node and its workflow-definition-sha.
-  2. Read the cited input `dataset` node and its datalad-commit-sha.
-  3. Confirm the input file is the one DataLad pinned (annex-key match).
-  4. Re-execute the method on the input (here: re-run the BET/FAST workflow).
-  5. Compute the SHA-256 of the new output and compare to the original
-     output-hash recorded in the derivative sidecar.
-
-A derivative is "verified" if and only if the re-run hash matches.
-Verifiability rate = verified / total.
+This script does not fetch or verify input pins, inspect method implementations,
+or execute BET/FAST. Run workflow.py separately to generate new artifacts, and
+retain an independent baseline when comparing runs. A match here establishes
+artifact/sidecar consistency only. Legacy report field names are retained for
+compatibility and must not be interpreted as a reproduction experiment.
 """
 
 import json, hashlib, sys, subprocess
@@ -46,7 +41,7 @@ for entry in index["nodes"]:
 
 derivatives = [(nid, fm) for nid, fm in nodes_by_id.items() if fm.get("type") == "derivative"]
 
-print(f"Glimmer trace verification — {len(derivatives)} derivatives to check\n")
+print(f"Glimmer artifact hash check — {len(derivatives)} derivatives to check\n")
 
 results = []
 for did, dfm in derivatives:
@@ -80,15 +75,16 @@ total = len(results)
 rate = (verified / total * 100) if total else 0
 
 print()
-print(f"━━━ Verifiability summary ━━━")
+print(f"━━━ Existing-artifact hash summary ━━━")
 print(f"  total derivatives:  {total}")
 print(f"  verified:           {verified}")
 print(f"  hash mismatches:    {mismatch}")
 print(f"  missing on disk:    {missing}")
-print(f"  verifiability rate: {rate:.1f}%")
+print(f"  artifact match rate: {rate:.1f}%")
 
 # Write a verification report
 report = {
+    "check-type": "existing-artifact-hash-consistency",
     "total": total,
     "verified": verified,
     "mismatch": mismatch,

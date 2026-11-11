@@ -1,10 +1,10 @@
 # Glimmer
 
-> **A research-object knowledge base for AI-native scientific workflows.**
+> **An AI-native solution to the reproducibility problem.**
 >
-> The 2010s gave us reproducible pipelines. Glimmer is the next layer up — the typed-entity graph that makes the agentic feedback loop traversable over those pipelines.
+> The 2010s gave us reproducible pipelines. Glimmer is the next layer up — a typed-entity graph over those pipelines whose runs are **executable, standard-gated, and self-verifying**, so "this result reproduces" is a claim checked against recorded evidence, not a footnote you trust.
 
-[![Status: v0.3](https://img.shields.io/badge/status-v0.3-blue.svg)](https://github.com/hebbianloop/glimmer)
+[![Status: v0.6](https://img.shields.io/badge/status-v0.6-blue.svg)](https://github.com/hebbianloop/glimmer)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Template](https://img.shields.io/badge/repo-template-purple.svg)](https://github.com/hebbianloop/glimmer/generate)
 
@@ -12,9 +12,16 @@
 
 Existing standards (BIDS, DataLad, NIDM, Nipype) give your project syntactic structure. Glimmer adds the **graph layer**: datasets, methods, derivatives, findings, standards, and publications become first-class typed nodes with versioned edges, distributed across per-entity sidecars. An AI agent traverses the graph to render verifiable decisions with auditable reasoning traces.
 
+**Executable provenance (v0.6 development candidate).** `glimmer run` checks input content pins and available standard validators before executing a run-record. `glimmer rerun` distinguishes raw byte identity, normalized-content matching, numeric agreement and structural evidence checks. Host execution requires explicit opt-in; structural checks do not certify scientific interpretation. Start with [`docs/proactive-provenance.md`](docs/proactive-provenance.md) and the [portable synthetic fixture](examples/synthetic-provenance/).
+
+The [container qualification example](examples/container-provenance/) exercises
+the installed CLI with real DataLad, git-annex, and Docker in a disposable Linux
+environment. It retains separate execution, replay, and failure receipts for one
+synthetic method; hosted execution and provider authentication remain separate.
+
 Glimmer is domain-agnostic. The canonical worked example in this repo is neuroimaging because that's where standards like BIDS and tools like DataLad and Nipype are most developed — but the architectural pattern (typed-entity graph over a versioned-data substrate) applies to any compute-intensive scientific domain backed by a mature standards ecosystem.
 
-Glimmer is the architectural pattern + a reference implementation. The full case for it is in the CAISC 2026 paper (see [`docs/paper-citation.md`](docs/paper-citation.md)).
+Glimmer is the architectural pattern + a reference implementation. The original architectural argument is in the unpublished CAISC submission (see [`docs/paper-citation.md`](docs/paper-citation.md)).
 
 ## How to use this repo
 
@@ -42,15 +49,17 @@ The line between "core" and "project" is the `glimmer/` directory. Anything insi
 ```
 glimmer/
 ├── schema/
-│   ├── schema.md            # v0.3 spec — 10 entity types, edge taxonomy, sidecar format
+│   ├── schema.md            # v0.6 spec — 13 entity types (incl. run-record), edge taxonomy, sidecar format
 │   ├── frontmatter.yaml     # machine-readable contract for validators
-│   └── glimmer-version      # current core version (0.3.1)
+│   └── glimmer-version      # current core version (0.6.0)
 └── tools/
     ├── validate.py          # schema validator (enforces agent-protocol verifiability)
+    ├── run.py               # node runner — `glimmer run` / `glimmer rerun` (gate → replay → verify)
     ├── cli.py               # `glimmer` CLI single entry point
     └── figure_schema.py     # render the schema diagram
 
 examples/
+├── synthetic-provenance/    # v0.6 proactive-provenance demo: loop + 3 tiers + gate + equivalence
 └── ds000114-nipype/         # canonical worked example from the CAISC 2026 paper
     ├── install.sh           # `datalad install ///openneuro/ds000114` + selective `datalad get`
     ├── workflow.py          # Nipype anatomical preprocessing (BET → FAST)
@@ -73,22 +82,21 @@ docs/
 ## Quick start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-# FSL must be on PATH (or use the nipreps/fmriprep Docker container)
-
-# Run the canonical example end-to-end
-cd examples/ds000114-nipype
-bash install.sh                    # ~30 MB DataLad fetch (sub-01 T1w + dataset metadata)
-python workflow.py                 # runs BET + FAST, produces derivatives + provenance.json
-python emit_graph.py               # walks provenance + emits Glimmer sidecars under rokb/
-
-# Validate the emitted graph
-python ../../glimmer/tools/validate.py rokb/
-
-# Verify the trace (re-runs each method from the graph's pinned SHAs + compares hashes)
-python verify.py
+python -m venv .venv
+. .venv/bin/activate
+pip install .
+python examples/synthetic-provenance/smoke.py
+python -m unittest discover -s tests -v
 ```
+
+This builds the complete synthetic graph from committed sources and exercises the
+installed `glimmer` command. The fixture is scripted and runs on the host; it does
+not establish an LLM evaluation or container-runtime acceptance. Optional imaging
+normalization tests use `pip install '.[imaging]'`.
+
+The [canonical ds000114 example](examples/ds000114-nipype/) remains available for
+the neuroimaging workflow and requires DataLad, Nipype and FSL. Its legacy
+`verify.py` checks hashes of existing files; a new workflow run is a separate step.
 
 ## Core principles
 
@@ -113,7 +121,7 @@ v0.2 dropped `qc-artifact` and `rater` (over-indexed on QC as the canonical exam
 
 If you use Glimmer in your research, cite:
 
-> El Damaty, S. (2026). *Reproducibility as Knowledge Graph Navigation: Glimmer, a Research-Object Knowledge Base for AI-Native Neuroimaging Analysis.* Conference for AI Scientists 2026.
+> El Damaty, S. (2026). *Reproducibility as Knowledge Graph Navigation: Glimmer, a Research-Object Knowledge Base for AI-Native Neuroimaging Analysis.* Unpublished manuscript, 2026.
 
 See [`docs/paper-citation.md`](docs/paper-citation.md) for the BibTeX entry.
 

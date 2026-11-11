@@ -1,0 +1,423 @@
+\documentclass[preprint]{glimmer-paper}
+
+\title{Reproducibility as Knowledge Graph Navigation:\\
+A Research-Object Knowledge Base for AI-Native Neuroimaging Analysis}
+\author{Shady El Damaty}
+\affil{Holonym / Opscientia}
+\version{0.5.1}
+\repo{https://github.com/hebbianloop/glimmer}
+\date{2026}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\node}[1]{\textsf{#1}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Reproducible-pipeline tooling---BIDS for data layout, DataLad and git-annex for
+content-addressed versioning, Nipype and containers for pinned computation---made the
+\emph{bytes} of a neuroimaging analysis recoverable and gave projects syntactic
+structure. What it did not give is a \emph{navigable knowledge layer}: a typed,
+machine-traversable account of which datasets, methods, derivatives, findings, and
+publications a project comprises, how they relate, and what evidence grounds each claim.
+This gap matters acutely for AI-native workflows, where an agent must reason over a
+project's provenance to render decisions a human can audit. We present Glimmer, a
+research-object knowledge base that models a research project as a typed-entity graph
+distributed across per-entity sidecar files. Twelve core node types and a versioned edge
+taxonomy turn datasets, methods, derivatives, findings, standards, publications, research
+questions, people, and programs into first-class nodes; every node carries a content hash
+and its DataLad re-fetch coordinates, and every agent-produced node carries a mandatory
+reasoning trace citing the nodes it read. A schema-level verifiability contract
+distinguishes \emph{exact} provenance (a deterministic result must re-run from its cited
+SHAs) from \emph{structural} provenance (an inferred claim must cite real nodes that
+contain the values it reports), and a domain-profile mechanism keeps the core
+domain-neutral while letting neuroimaging (BIDS) and other fields add their own
+vocabulary. Because the graph is plain files, it survives \code{git clone},
+\code{datalad export}, and \code{rsync} with no database. We describe the schema, the
+agent protocol, the agentic research loop it enables, and two worked examples (a
+DataLad$\rightarrow$Nipype pipeline and a literature-retrieval adapter), and we frame
+reproducibility as a property an agent establishes by \emph{navigating} the graph and
+re-running from cited coordinates. Turning that navigable property into an automatic
+execution-and-verification engine is the subject of follow-on work.
+\end{abstract}
+
+\section{Introduction}
+
+A decade of investment in reproducible pipelines transformed neuroimaging. The Brain
+Imaging Data Structure \citep{gorgolewski2016bids} standardized how raw data is laid out;
+DataLad and git-annex \citep{halchenko2021datalad} made datasets content-addressed and
+re-fetchable by hash; Nipype \citep{gorgolewski2011nipype} and containerized BIDS-Apps
+such as MRIQC \citep{esteban2017mriqc} and fMRIPrep \citep{esteban2019fmriprep} pinned the
+toolchain so a computation could, in principle, be re-executed. Together these guarantee
+two things: the \emph{bytes} an analysis consumed can be recovered, and the project has a
+\emph{syntactic} structure a tool can parse.
+
+They do not guarantee a third thing that matters increasingly: a \emph{navigable knowledge
+layer}. Given a published number, what dataset produced it, under which method version,
+conforming to which standard, supporting which claim, cited in which paper, framed against
+which hypothesis? In practice that knowledge lives in lab wikis, file-naming conventions,
+analysis scripts, and researchers' memories---none of it typed, none of it traversable,
+and none of it survives the people who built it. The reproducibility crisis is, in this
+framing, partly a \emph{knowledge-representation} problem: the relationships among a
+project's artifacts are real but unrecorded.
+
+The problem sharpens under AI-native workflows. An agent asked to quality-control a
+dataset, summarize a result, or draft a paragraph must reason over exactly these
+relationships, and---if its output is to be trusted---must leave behind an auditable
+account of the evidence it used. A free-text answer from a language model is not
+auditable; a decision grounded in a typed graph, with an explicit trace of which nodes
+were read and which metrics were treated as load-bearing, is.
+
+\paragraph{Thesis.} We propose to model a research project as a typed-entity
+\emph{research-object graph}, distributed across per-entity sidecar files that live
+alongside the data in version control, so that reproducibility becomes
+\emph{knowledge-graph navigation}: an agent (or a human) answers a provenance question by
+traversing typed edges from a claim back to the data and code that ground it, and
+establishes that a result reproduces by re-fetching and re-running from the coordinates
+the graph records. Glimmer is the schema, the verifiability contract, and a reference
+implementation of this idea. This paper describes the architecture as of v0.5.x; an
+automatic execution-and-verification engine that turns the navigable property into a
+machine-checked one is forthcoming \citep{eldamaty2026proactive}.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item A domain-neutral schema of twelve core node types and a versioned edge taxonomy
+  that represents the data layer, the evidence layer, and the social/research-program
+  layer of a project as one traversable graph (\S\ref{sec:schema}).
+  \item A distributed, file-based realization---per-entity YAML sidecars plus a root
+  index---that carries content hashes and DataLad re-fetch coordinates on every node and
+  survives ordinary distribution tools (\S\ref{sec:schema}, \S\ref{sec:discussion}).
+  \item An agent protocol: a schema-level verifiability contract requiring every
+  agent-produced node to declare its identity and emit a reasoning trace, and
+  distinguishing exact from structural verification (\S\ref{sec:protocol}).
+  \item The agentic research loop the substrate enables---plans-as-issues, concept
+  decomposition, and four specialized agent roles---and a retrieval adapter that gives
+  literature search the same provenance discipline (\S\ref{sec:loop}).
+  \item Two worked examples and a domain-profile mechanism that keeps the core
+  domain-neutral while supporting BIDS-specific vocabulary (\S\ref{sec:examples}).
+\end{itemize}
+
+\section{Background and related work}
+\label{sec:background}
+
+\paragraph{Data and pipeline standards.} BIDS \citep{gorgolewski2016bids} fixes a
+directory layout and sidecar conventions for neuroimaging; it is syntactic structure, not
+a relational account of a project. DataLad and git-annex \citep{halchenko2021datalad}
+provide content-addressed, distributed version control: a dataset is a git repository
+whose large files are tracked by annex key, so any file can be re-fetched by a pinned
+commit and key. Nipype \citep{gorgolewski2011nipype} wraps heterogeneous tools (FSL,
+FreeSurfer, ANTs) behind a uniform interface and records workflow structure. Glimmer does
+not replace any of these; it reads them and sits above them, treating a DataLad
+superdataset as the source of truth and recording, on each node, the coordinates needed to
+recover the bytes.
+
+\paragraph{Provenance description.} The W3C PROV data model \citep{w3cprov2013}
+formalizes entities, activities, and agents; the Neuroimaging Data Model (NIDM)
+\citep{maumet2016nidm} applies a PROV/RDF account to statistical results; RO-Crate
+\citep{soilandreyes2022rocrate} packages a dataset with typed, linked-data metadata; and
+schema.org provides a general vocabulary for web-discoverable description. These are
+description formats. Glimmer is deliberately compatible with them---its node types map
+cleanly onto PROV entities and activities, and a Glimmer graph can be cross-read as
+RO-Crate or JSON-LD---but its contribution is a \emph{working substrate} an agent
+navigates and a validator enforces, not a new serialization. The interoperability stance
+is explicit: format does not matter if an agent can translate between formats, so a
+sidecar may be BIDS-native JSON, Glimmer-native YAML, or any structured form the agent can
+parse into the same typed graph.
+
+\paragraph{AI for science.} End-to-end autoresearch systems
+\citep{lu2024aiscientist,boiko2023coscientist} run fixed internal pipelines from idea to
+manuscript. Glimmer is complementary: rather than a pipeline, it is a typed, versioned,
+auditable substrate that multiple agents---possibly from different systems---can reason
+over and contribute to, with a verifiability contract that makes each contribution
+checkable. The graph survives independently of any one autoresearch system.
+
+\section{The Glimmer schema}
+\label{sec:schema}
+
+A Glimmer research-object knowledge base (RO-KB) is a set of typed nodes, each stored as a
+sidecar file, enumerated by a root index. We describe the node types, the edges, the
+sidecar format, and the domain-profile mechanism.
+
+\subsection{Node types}
+
+The core schema is domain-neutral: vocabulary fixed by a particular field's standards
+lives in profiles (\S\ref{sec:profiles}), not in the core. Twelve node types span three
+layers.
+
+\emph{The data and evidence layer.}
+\begin{itemize}
+  \item \node{dataset} --- research data of any kind. The core carries only identity,
+  generic provenance, and re-fetch coordinates; kind-specific attributes
+  (participant, session, modality) come from a profile.
+  \item \node{method} --- a named analysis tool, pipeline, or workflow (an FSL binary, a
+  Nipype interface or workflow, a script), with \code{tool}, \code{version},
+  \code{parameters}, a \code{parameters-hash}, and a \code{workflow-definition-sha}.
+  \item \node{experiment} --- a task or acquisition \emph{paradigm} (conditions, stimuli,
+  timing), distinct from a static standard.
+  \item \node{instrument} --- the measurement apparatus that \emph{generates} data (a
+  scanner, survey, assay, task-delivery system, or device); a dataset is
+  \code{acquired-with} an instrument.
+  \item \node{derivative} --- the output of applying a method to a dataset; a first-class
+  node, not a directory, carrying an \code{output-hash} so a re-run can be checked, and a
+  required \code{provenance-mode} (\S\ref{sec:protocol}).
+  \item \node{finding} --- an interpreted assertion grounded in one or more derivatives,
+  the unit between ``the pipeline produced this output'' and ``we wrote a paper about
+  it,'' aligned with evidence-graph practice: an interpretation plus evidence pointers
+  plus verifiable provenance.
+  \item \node{standard} --- a specification, atlas, template, or protocol (a BIDS version,
+  an atlas, a QC rating scale), modeled as a node so constraints are edges an agent can
+  read.
+  \item \node{publication} --- a paper draft, abstract, or preprint that aggregates
+  findings.
+\end{itemize}
+
+\emph{The social and research-program layer.}
+\begin{itemize}
+  \item \node{concept} --- a research question, hypothesis, or theme: the unit a research
+  program operates at (what a grant funds, what a thesis defends). The agentic loop
+  decomposes a concept into sub-hypotheses.
+  \item \node{persona} --- a person or organizational role; the in-graph identity an
+  attribution edge resolves to.
+  \item \node{organization} --- an institution, lab, consortium, journal, or funder.
+  \item \node{program} --- a study, cohort, or initiative as a first-class container that
+  organizes datasets, experiments, concepts, and publications around one mission; programs
+  nest via \code{part-of} to form multi-study hierarchies.
+\end{itemize}
+
+\subsection{Edges}
+
+Edges are properties on the source node, each carrying a type and a target. The taxonomy
+has three families.
+
+\emph{Structural edges} record the data-to-claim lineage: \code{produced-by}
+(derivative/dataset $\rightarrow$ method), \code{derives-from} (derivative $\rightarrow$
+dataset or upstream derivative), \code{applies-to} and \code{produces} (method
+$\leftrightarrow$ derivative), \code{conforms-to} (\textrm{$\rightarrow$} standard), the
+\code{cites-*} family (publication $\rightarrow$ dataset/method/derivative/finding), the
+method-pipeline DAG (\code{composes}, \code{upstream-of}, \code{downstream-of}), and the
+two acquisition edges promoted to the core in v0.5, \code{acquired-with} (dataset or
+experiment $\rightarrow$ instrument) and \code{described-by} (dataset $\rightarrow$
+experiment).
+
+\emph{Meta-graph edges} record evidence and the research program: \code{based-on}
+(finding $\rightarrow$ derivative/dataset), \code{addresses-concept} (finding or
+publication $\rightarrow$ concept), \code{tests-hypothesis} (experiment $\rightarrow$
+concept), the concept-relation edges \code{decomposes-into}, \code{extends-concept},
+\code{subsumed-by}, \code{competes-with}, and \code{superseded-by}, the evidence-relation
+edges \code{supports} and \code{contradicts}/\code{challenged-by}, and the in-graph
+attribution layer \code{authored-by}, \code{affiliated-with}, \code{funded-by},
+\code{mentors}, \code{leads}, and \code{part-of}.
+
+\emph{Universal edges} are allowed from any node and unioned in by the validator:
+\code{contributed-by} (an out-of-graph contributor identifier---an ORCID URI, email, or
+kebab id---carrying role metadata), \code{in-program} (membership in a program in this
+graph), and \code{cross-project} (a relationship to a node in \emph{another} project's
+graph, addressed by a namespaced id such as \code{ads-glimmer:org-nij}). The last two let
+a subproject inherit a canonical node from its parent program, or a harmonizing analysis
+connect two graphs, without a federated index.
+
+\subsection{Sidecars, the index, and provenance}
+
+Each node is a Markdown file with YAML front-matter; standalone sidecars are
+Glimmer-native YAML, while a sidecar extending a BIDS file in place is BIDS-native JSON
+augmented with an \code{\_x-glimmer} block. Every node has \code{id}, \code{type},
+\code{name}, \code{created}, \code{modified}, an optional \code{description}, an optional
+\code{edges} list, and a \code{provenance-hash}: a SHA-256 over the node's body, so a git
+commit is a snapshot of the entire graph's state. A root file, \code{\_glimmer-index.json},
+enumerates every node id and its path; it is the mandatory load for an agent.
+
+Re-fetchability is carried on the node. Datasets, derivatives, and methods record DataLad
+coordinates---\code{datalad-superdataset}, \code{datalad-relative-path},
+\code{datalad-commit-sha}, and \code{datalad-annex-key}---so the graph is self-describing
+for recovery: installing the superdataset and getting the cited path reproduces exactly
+the bytes the analysis ran on. Version 0.5.1 adds a \emph{data-availability} block to
+\node{dataset} (\code{data-remote}, \code{data-provenance}, \code{data-last-commit},
+\code{data-liveness}) so a query over the graph can tell whether a dataset is currently
+pullable, and from which storage backend, complementing the re-fetch coordinates.
+
+\subsection{Domain profiles}
+\label{sec:profiles}
+
+Keeping the core domain-neutral requires a disciplined extension mechanism. A
+\emph{domain profile} is a small YAML file that augments core node types with extra
+required or optional fields and, as of v0.5, may declare domain-specific node types and
+edge types. Profiles come in two tiers: a curated library versioned in the repository
+(\code{glimmer/schema/profiles/<domain>.yaml}) and a researcher's own, local to one
+knowledge base (\code{<rokb>/\_glimmer-profiles/<domain>.yaml}); a node selects its profile
+by its \code{domain} field, falling back to a KB-level default. The shipped neuroimaging
+profile encodes BIDS vocabulary---augmenting \node{dataset} with \code{subject-id},
+\code{session}, \code{modality}, \code{scanner}, and \code{bids-version}; \node{experiment}
+with \code{design} and \code{stimulus-set}; \node{method} with a Nipype node kind; and
+\node{derivative} with an \code{output-kind}---and declares the study-provenance edges a
+neuroimaging project needs. The governance rule is simple: a node or edge type is promoted
+to the core only once at least two domains need it; otherwise it stays in a profile. This
+lets a new field adopt Glimmer without forking the schema.
+
+\section{The agent protocol: a verifiability contract}
+\label{sec:protocol}
+
+The schema records structure; the agent protocol makes agent contributions auditable. Its
+rules are enforced by the validator, so a graph that violates them does not validate.
+
+\paragraph{Identity and reasoning trace.} When a \node{finding} or \node{derivative} is
+produced by an agent rather than by a deterministic computation, it must set
+\code{produced-by-agent} (a stable model identifier) and carry a \code{reasoning-trace}.
+The trace is structured: \code{nodes-accessed} lists every node id the agent read,
+\code{metrics-cited} records the numeric or categorical evidence treated as load-bearing,
+\code{evidence-summary} is a short justification with inline node-id citations, and
+\code{model-identifier} and \code{timestamp} fix provenance. A finding must additionally
+carry a \code{based-on} chain naming the derivatives or datasets that support it; a finding
+without one is treated as ungrounded.
+
+\paragraph{Modes of provenance.} Every \node{derivative} declares a \code{provenance-mode}:
+\code{deterministic} (a Nipype/FSL computation whose output is fixed by its inputs),
+\code{agent-inferred} (a language-model summary), or \code{stochastic} (e.g.\ a randomized
+initialization or a retrieval over an embedding index). The mode tells a reader what kind
+of verification is even possible.
+
+\paragraph{Exact versus structural verification.} The contract distinguishes two regimes.
+For a \code{deterministic} output, verification is \emph{exact} in principle: re-running
+the cited method at the cited input SHAs must reproduce the recorded \code{output-hash}, so
+the graph's claim about the artifact is falsifiable by re-execution. For an
+\code{agent-inferred} output, verification is \emph{structural}: the reasoning trace must
+cite nodes that exist, those nodes must contain the values the trace reports, and the
+interpretation must be a plausible reading of them. Neither test guarantees correctness;
+together they guarantee \emph{auditability}---a reviewer can walk from a claim back through
+its cited evidence and check that the evidence exists, conforms to the standards it cites,
+and says what the agent says it says. In this version these regimes are a contract the
+validator enforces and a discipline a human or a CI job applies by re-running; an engine
+that performs the re-execution and the structural check automatically is the subject of
+follow-on work (\S\ref{sec:limits}).
+
+\paragraph{Sanity-checking against source.} A method records a
+\code{workflow-definition-sha} and may record a \code{source-checkout-url} and
+\code{source-build-instructions}. When a reasoning trace cites a derivative whose method
+version has drifted from upstream source, the recovery move---borrowed from long-running
+neuroimaging projects---is to rebuild the method from source rather than trust a possibly
+divergent cached binary. The schema makes this expressible; an agent may choose to enforce
+it.
+
+\section{The agentic research loop}
+\label{sec:loop}
+
+The substrate is designed for a specific operating pattern: \emph{plans-as-issues} applied
+to research. An author writes a research idea as a \node{concept} node with a tracked
+issue; the concept is decomposed via \code{decomposes-into} into falsifiable
+sub-hypotheses; and for each sub-hypothesis the project runs one or more agent loops whose
+outputs route to human review (approve, revise, or reject). Four agent roles recur, each
+operating with a different access scope and the same verifiability contract:
+
+\begin{itemize}
+  \item a \emph{literature scout} that traverses external bibliographic sources and the
+  project's existing publications and emits new \node{publication} nodes for relevant prior
+  work, read-only on local data;
+  \item a \emph{QC agent} that rates datasets and their derivatives against a standard,
+  emitting artifacts with full reasoning traces;
+  \item an \emph{analysis agent} that runs deterministic computation and emits
+  \node{derivative} nodes with \code{provenance-mode: deterministic}; and
+  \item a \emph{synthesis agent} that walks the populated graph and drafts a
+  \node{publication} by composing derivatives, QC artifacts, and cited publications into an
+  argument, with its output gated on human review.
+\end{itemize}
+
+At every step the output's reasoning trace cites the standards it applied, so a reviewer
+can verify standards adherence without inspecting the data directly; the protocol makes
+verifiability non-optional at each step. Crucially, the loop is the \emph{operational
+pattern the substrate enables}---typed roles emitting typed, traceable nodes---rather than
+a monolithic executable; the substrate's job is to make every contribution navigable and
+checkable.
+
+\paragraph{Retrieval with provenance.} Literature search is inherently non-deterministic,
+so the retrieval adapter gives it the honest analogue of SHA-based reproducibility. A
+retrieval-grounded \node{finding} is marked \code{provenance-mode: stochastic} and embeds a
+\code{retriever-manifest}---the embedding model and version, the chunking and reranking
+configuration, and the index SHA---so a same-configuration re-run is reproducible modulo
+the index. The adapter's indexing operation is idempotent on a node's id and
+provenance-hash, so re-emitting an unchanged node is a no-op. This keeps even the
+stochastic, external-knowledge parts of the loop inside the same auditable contract.
+
+\section{Worked examples}
+\label{sec:examples}
+
+\paragraph{A DataLad$\rightarrow$Nipype pipeline.} The reference example operates on the
+public OpenNeuro dataset \code{ds000114}. A short install step runs
+\code{datalad install ///openneuro/ds000114} and selectively gets a subject's T1-weighted
+image, recording the DataLad coordinates. A Nipype workflow applies skull-stripping (FSL
+BET) and tissue segmentation (FSL FAST); the emitter then writes typed sidecars: a
+\node{dataset} for the input, \node{method} nodes for BET and FAST (each with its tool
+version, parameter hash, and workflow-definition SHA), \node{derivative} nodes for the
+outputs (each with an \code{output-hash} and \code{provenance-mode: deterministic}), and a
+\node{finding} reporting a derived brain volume. The graph is self-describing for recovery:
+the cited superdataset, commit, and annex key locate exactly the input bytes, and the
+method's SHA plus parameters specify the computation, so the derivative's recorded hash is
+the target a re-run must reproduce. The validator confirms that every edge target exists,
+that the finding carries a \code{based-on} chain, and that the reasoning-trace contract
+holds.
+
+\paragraph{A literature-retrieval adapter.} The second example models the literature-scout
+role. A \node{concept} states a falsifiable hypothesis (a naturalistic emotional-film fMRI
+paradigm predicting a later behavioral outcome); the scout retrieves prior work, emits
+\node{publication} nodes with citation metadata, and emits a \node{finding} whose
+\code{reasoning-trace} records the retrieval scores and the publications it read, marked
+\code{provenance-mode: stochastic} with its \code{retriever-manifest}. A reviewer can read
+the trace, follow \code{based-on} to each cited publication, and confirm the finding cites
+real, retrievable evidence---structural verification in practice.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Distributed-first by design.} Glimmer deliberately avoids a central database.
+Because the graph is per-entity files committed alongside the data, it survives the tools
+researchers already use---\code{git clone}, \code{datalad export}, \code{rsync}---with no
+bespoke serialization, and a single commit at the superdataset level captures the full
+state of data, code, derivatives, and graph together. The cost---no global query without
+loading the index---is acceptable for project- and program-scale graphs and buys
+durability and tool-independence.
+
+\paragraph{Domain-agnostic core, domain-specific profiles.} The split between a
+twelve-type core and curated/local profiles lets the same architecture serve neuroimaging
+today and other compute-intensive, standards-backed fields tomorrow, with promotion to the
+core gated on cross-domain demand. The reference implementation is neuroimaging because
+that is where the standards ecosystem is most mature, but nothing in the core is
+neuroimaging-specific.
+
+\paragraph{A junction with decentralized science.} Because nodes carry stable, possibly
+out-of-graph identities (ORCID, namespaced cross-project ids) and the substrate is
+file-based and content-addressed, Glimmer composes naturally with decentralized-science
+infrastructure---OpenNeuro and Opscientia for data, and verifiable-researcher-identity
+systems for attribution and signing. The \code{cross-project} edge is the seam along which
+independent project graphs federate.
+
+\section{Limitations and future work}
+\label{sec:limits}
+
+The central limitation of this version is that verification is a \emph{navigable property},
+not an automatic one. The schema records everything needed to reproduce a deterministic
+result---input SHAs, method SHA, parameters, the target output hash---and the validator
+enforces the reasoning-trace contract, but the act of re-fetching, re-running, and
+comparing is performed by a human or a continuous-integration job, not by the substrate
+itself. An \emph{executable node runner} that gates a computation's inputs, replays it in
+its pinned environment, and verifies its outputs automatically---turning the exact and
+structural regimes of \S\ref{sec:protocol} into machine-checked verdicts---is the natural
+next step and the subject of follow-on work \citep{eldamaty2026proactive}. Other open
+directions include federation across institution graphs with a reputation model for schema
+extensions, durable-storage guarantees expressed in the model rather than left to
+operations, and temporal edges for longitudinal study waves.
+
+\section{Conclusion}
+
+Reproducible pipelines gave neuroimaging recoverable bytes and syntactic structure;
+Glimmer adds the layer above them, a typed research-object graph in which datasets,
+methods, derivatives, findings, standards, publications, questions, and people are
+first-class nodes connected by versioned edges, distributed across files that survive
+ordinary tooling. By carrying content hashes and DataLad coordinates on every node and a
+mandatory reasoning trace on every agent output, the graph makes reproducibility a matter
+of \emph{navigation}: an agent or reviewer walks from a claim to the evidence that grounds
+it and re-runs from the coordinates the graph records. That navigable foundation is what an
+automatic execution-and-verification engine can then build upon.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

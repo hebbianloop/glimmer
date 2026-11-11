@@ -1,0 +1,4 @@
+{
+  "values": [0.1, 0.2, 0.3],
+  "note": "missing the required `glimmer-signal-format: v1` key — trips the standards gate"
+}

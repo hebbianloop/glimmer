@@ -91,6 +91,8 @@ These fields are optional in v0.1.1 and recommended in v0.1.2. A Glimmer instanc
 
 Every step is verifiable. Every output cites its inputs by content-hash. The Glimmer graph isn't a fragile parallel database — it's a thin reasoning layer over a DataLad superdataset that is itself the source of truth.
 
+The "verification agent re-runs methods, compares output-hashes" step above is concrete as of v0.6: it is the `glimmer rerun` node runner (`glimmer/tools/run.py`, see [`proactive-provenance.md`](proactive-provenance.md)). The runner replays a `run-record`'s command pinned to its `container-digest` via `datalad containers-run`, materializing inputs with `datalad get` and matching their `datalad-annex-key` / `datalad-commit-sha` before execution — the DataLad coordinates on each node are exactly what makes re-fetch-and-replay possible.
+
 ## How this relates to the format-agnostic position
 
 Earlier docs argued for a "two-tier" Glimmer/BIDS sidecar strategy. The deeper point is simpler: **format doesn't matter if the agent can translate between formats.** What matters is that the data has the structure the schema requires.

@@ -1,0 +1,182 @@
+{
+  "model": "claude-opus-5-5",
+  "scope": "Static review of supplied source; no tools or independent execution",
+  "prompt_sha256": "6c2cfc9abeb1223918c1f93a77f8e69cda6a78602a8be73a911dfb2c55feb9a8",
+  "response": {
+    "verdict": "changes_requested",
+    "verdict_rationale": "The core path is plausible: content-pinned inputs, a hash-checked image file, host-side validators, a fresh clone per case, and no --no-container, --no-gate or --write-verdict. The preliminary 13/13 pass is consistent with that. The qualification does not yet support its acceptance claims, for four reasons. (1) The preliminary evidence shows the tested tree was not a clean checkout of a verified revision. (2) Several negative cases pass on a verdict string that more than one fault can produce. (3) The positive cases do not prove they used the authored baseline or the archive whose identity they report. (4) Timeout and cleanup success are reported only by the helper being tested. None of these needs a runner or schema change. All fixes go in qualify.py, container_entry.py, the unit tests and the README.",
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "high",
+        "title": "Source identity is self-asserted; preliminary evidence shows a polluted, non-checkout tree",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: parser.add_argument('--source-revision',required=True,help='Commit containing this example; file hashes are also retained')",
+          "qualify.py: for folder in ('code','inputs','expected'): shutil.copytree(HERE/folder,root/folder)",
+          "README.md: --source-revision \"$(git rev-parse HEAD)\"",
+          "evidence/qualification.json definition_sha256: \"code/._check_values.py\": \"sha256:6f027b9e56759edfbfc0388505562d568fda2a41490c44cf910c6a0c5d93a8dc\" (same hash for code/._compute.py, code/._container_entry.py, expected/._summary.json)",
+          "qualify.py: *sorted((HERE/'code').glob('*.py')),*sorted((HERE/'inputs').glob('*.json')),*sorted((HERE/'expected').glob('*.json'))"
+        ],
+        "impact": "The preliminary run copied macOS AppleDouble files into the template commit and into the read-only code mount. The source tree was therefore a transferred copy, not a clean checkout. The driver records --source-revision as an opaque string and never checks that HERE matches it. Untracked or modified files are copied silently. pathlib globs match dotfiles, so the new source_sha256 will also hash the ._* files, and the copy can include unreviewed bytes. A passing qualification.json therefore cannot be tied to the PR revision.",
+        "recommended_fix": "In qualify.py, derive the revision itself with `git -C HERE rev-parse HEAD`. Fail if `git -C HERE status --porcelain --ignored -- .` is non-empty, and fail if the argument disagrees with the derived revision. Populate the template from `git ls-files`/`git archive <rev> -- examples/container-provenance` instead of copytree, and reject any `._*` or untracked path. Before the PR, compare source_sha256 to the PR blob hashes and record the result in qualification.json."
+      },
+      {
+        "id": "F2",
+        "severity": "medium",
+        "title": "Gate-failure negatives pass for any gate failure, so they can be false positives",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: 'changed-input':'gate-failed', ... 'invalid-input':'gate-failed','missing-validator':'gate-failed'",
+          "qualify.py: checks['not_executed']=not receipts and not products",
+          "glimmer/tools/run.py: v.verdict = \"inputs-unavailable\" if any(not p.get(\"available\") for p in v.inputs) else \"gate-failed\""
+        ],
+        "impact": "changed-input, invalid-input and missing-validator all reduce to the same verdict and the same not-executed check. Suppose invalid-input's injected pin did not match: an error in key() or in the node rewrite. The case would still pass on a pin failure and would never prove that the validator rejects bad data. Likewise, missing-validator would pass if the pin check failed first. The README claims these are three distinct rejections, which is stronger than the assertions show.",
+        "recommended_fix": "Read verdict['validation-gate']['dataset-values'] from the manifest and assert the cause of each failure. changed-input: pinned is False and standards['standard-bounded-values']['valid'] is True. invalid-input: pinned is True, valid is False, and the validator detail ends in 'rc=1'. missing-validator: pinned is True and the detail starts with 'validator unavailable'. For every negative case, also assert that source_status contains exactly the intended mutated paths."
+      },
+      {
+        "id": "F3",
+        "severity": "medium",
+        "title": "Declared zero tolerance is ignored; zero comes from an empty-dict fallback",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: 'reproduction-tolerance': {'abs': 0.0, 'rel': 0.0}}",
+          "glimmer/tools/run.py: qtol = tolerance.get(\"quantities\", {})",
+          "glimmer/tools/run.py: tol = qtol.get(name, tolerance.get(\"default\", {}))"
+        ],
+        "impact": "verify_numeric reads only 'quantities' and 'default'. The run-record's abs/rel keys are dead, every numeric check runs with tol {}, and the bound is max(0, 0) by accident. The README's 'three numeric comparisons with zero tolerance' happens to be true. The provenance record, however, declares a tolerance the runner never applies: changing it to abs: 1.0 would not change the outcome, and evidence reviewers would see tol: {}.",
+        "recommended_fix": "Declare 'reproduction-tolerance': {'default': {'abs': 0.0, 'rel': 0.0}}. In the replay case, assert that every numeric check's 'tol' equals {'abs': 0.0, 'rel': 0.0}."
+      },
+      {
+        "id": "F4",
+        "severity": "medium",
+        "title": "Archive identity in evidence is not bound to the archive that was executed",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: 'image_archive_sha256':digest(archive),  (computed after all cases, from the external /tmp path)",
+          "container_entry.py: 'archive_sha256': sha256(archive),  (recorded, never compared)",
+          "qualify.py: checks['real_container']=len(receipts)==1 and receipts[0]['status']=='completed' and verdict['environment']['pinned'] is True",
+          "README.md: The driver records the exact archive hash, platform, immutable image ID, source file hashes, dependency versions, and source revision"
+        ],
+        "impact": "Execution uses the annexed copy pinned by the run-record's container-digest. The top-level hash is taken later from a different, mutable file. Nothing asserts that the receipt's archive_sha256, the run-record's container-digest and image_archive_sha256 are equal. The driver also never records or asserts image_id or image_platform. Those values exist only in per-case receipt files, so the README overstates what the driver records. The image store (classic or containerd) is not recorded either, and it determines which ID path was exercised.",
+        "recommended_fix": "Hash the archive once at startup. For execute and replay, assert that receipt archive_sha256 == run-record container-digest == the startup hash. Assert that image_id is identical across both positive cases. Put image_id, image_platform and the image store (`docker info --format '{{json .DriverStatus}}'`) into qualification.json. Optionally, assert that image_id matches the README's pinned python@sha256 digest or its config digest."
+      },
+      {
+        "id": "F5",
+        "severity": "medium",
+        "title": "Baseline oracle immutability is not asserted for positive cases",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: if name == 'raw': pin['expected-hash'] = digest(expected)",
+          "qualify.py: else: pin['expected-values'] = json.loads(expected.read_text())",
+          "qualify.py: 'source_status':source_status  (recorded, never asserted)",
+          "qualify.py: write_node(path,fm,body)  (inject re-serializes the run-record for every case, including execute/replay)",
+          "evidence: wrong-baseline reaches 'mismatch', not 'gate-failed', with the dataset-expected-baseline pin intact"
+        ],
+        "impact": "The runner compares against the inline copy in the run-record. The dataset-expected-baseline pin only guards expected/summary.json bytes, and wrong-baseline shows the gate passes when the oracle is edited. definition_unchanged only proves that the CLI call did not rewrite files. It does not prove that execute/replay ran the committed template definition. That holds in the preliminary run (source_status \"\"), but no check would catch a re-serialization or inject regression. The README's 'authored baseline ... content-pinned' implies the pin protects the comparison, which it does not.",
+        "recommended_fix": "For execute, replay and unavailable-engine, assert source_status == '' and that the run-record digest equals the template commit's blob. For replay, assert outputs[0]['expected'] == digest(committed expected/summary.json) and that the numeric expected values equal its parsed JSON. In the README, say the oracle is the run-record's inline copy and the driver cross-checks it against the pinned file."
+      },
+      {
+        "id": "F6",
+        "severity": "medium",
+        "title": "Timeout and cleanup are self-reported, and some failure paths leak containers or abort without evidence",
+        "file": "examples/container-provenance/code/container_entry.py; examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: checks['stopped']=len(receipts)==1 and receipts[0]['status']=='timed-out' and receipts[0]['container_removed']",
+          "container_entry.py: docker('kill', container, timeout=10)  (a failure here jumps to the outer except and overwrites 'timed-out' with 'failed')",
+          "container_entry.py: container = created  (set only after create succeeds and the ID regex matches; rm in finally uses this ID)",
+          "glimmer/tools/run.py: rc = subprocess.run(full + [\"--\", *argv], cwd=run_root, capture_output=True, text=True)  (no timeout)",
+          "qualify.py: def command(argv, cwd, *, check=True, env=None, timeout=240):  (TimeoutExpired propagates; only the glimmer child is killed)"
+        ],
+        "impact": "The only proof that the container was stopped and removed is the helper's own receipt. No independent engine query is made. Three paths leak a container: `docker create` times out after creating it, its output fails the regex, or the helper is signalled. In each case finally is skipped or has no ID, and the named container survives. A 300 s sleep in the timeout mode could then outlive the case. A driver-level timeout or an exception crashes qualify.py, so no qualification.json is written and the datalad/helper grandchildren keep running. The README's 'container removal, including failure' covers only in-process exceptions.",
+        "recommended_fix": "After each case, independently run `docker ps -a --filter name=glimmer-fixture- --format '{{.ID}} {{.Status}}'`, require empty output and store it in attempt.json. In finally, remove by the deterministic --name, not only by parsed ID. Turn SIGTERM into an exception in the helper. Run glimmer with start_new_session=True and os.killpg on timeout, and record that case as failed instead of aborting. Keep 'timed-out' when kill fails by recording kill_error separately. Add unit tests for the timeout, kill-failure and create-timeout receipt paths."
+      },
+      {
+        "id": "F7",
+        "severity": "low",
+        "title": "Image ID candidates are not chained, and the post-load check can be satisfied by pre-existing engine state",
+        "file": "examples/container-provenance/code/container_entry.py; tests/test_container_fixture.py; examples/container-provenance/README.md",
+        "evidence": [
+          "container_entry.py: if reference not in ids: ids.append(reference)  (index descriptor never linked to manifest.json Config)",
+          "container_entry.py: docker('load', '--input', str(archive))  (output ignored), then loaded = json.loads(docker('image', 'inspect', candidate).stdout)[0]",
+          "tests/test_container_fixture.py: descriptor = b'{\"schemaVersion\":2,\"manifests\":[]}'  (an empty index is accepted as a valid identity)",
+          "README.md: docker pull python@sha256:5e2b... / docker tag ... glimmer-fixture:qualified  (the image is resident before any load)"
+        ],
+        "impact": "An archive whose index.json and manifest.json name different images yields two accepted candidates, and the receipt reports whichever is already resident. With the README setup, inspect succeeds before load does anything, so 'loaded image matches archived identifier' is never isolated. The risk is low because the archive bytes are pinned, but the unit test endorses a structurally meaningless descriptor.",
+        "recommended_fix": "Verify the chain index \u2192 manifest (or per-platform manifest) \u2192 config digest equals manifest.json Config. Parse 'Loaded image ID:' or 'Loaded image:' from load stdout and require it to match. Either remove the tag and digest from the engine after `docker save`, or record whether the ID pre-existed. Add a unit test where index and config disagree, and make the 'modern' fixture a real manifest."
+      },
+      {
+        "id": "F8",
+        "severity": "low",
+        "title": "Receipts lose Docker diagnostics, so unavailable-engine passes for any pre-create failure",
+        "file": "examples/container-provenance/code/container_entry.py; examples/container-provenance/qualify.py",
+        "evidence": [
+          "container_entry.py: record['error'] = str(exc)[-2048:]  (str(CalledProcessError) omits stderr)",
+          "qualify.py: checks['no_container_created']=len(receipts)==1 and receipts[0]['status']=='failed' and 'container_id' not in receipts[0] and not products"
+        ],
+        "impact": "For load, create, inspect, kill and rm failures, the retained evidence has no daemon message. unavailable-engine would also pass if the archive parse or any other step failed before create.",
+        "recommended_fix": "Record exc.stderr[-2048:] and a 'failed_step' field. In unavailable-engine, assert that archive_image_ids is present (so the parse succeeded), failed_step == 'load', and stderr references the nonexistent socket."
+      },
+      {
+        "id": "F9",
+        "severity": "low",
+        "title": "One probe is vacuous, and some README limits are not asserted",
+        "file": "examples/container-provenance/code/compute.py; examples/container-provenance/qualify.py",
+        "evidence": [
+          "compute.py: ('root_readonly', Path('/glimmer-write-probe'))  (a nonroot UID cannot write to / even on a writable rootfs)",
+          "qualify.py: required = {'NetworkMode':'none','ReadonlyRootfs':True,'Memory':134217728, 'MemorySwap':134217728,'NanoCpus':500000000,'PidsLimit':64}  (no Tmpfs, User or mount Source)"
+        ],
+        "impact": "The root_readonly probe passes regardless of --read-only. Only the HostConfig check backs that claim. The README's 16 MiB noexec tmpfs is recorded but not asserted. Bind Source paths and User are not checked.",
+        "recommended_fix": "Probe a path the UID could write on a writable rootfs, such as /var/tmp in the python image, and require errno EROFS. Assert that Tmpfs['/tmp'] contains 'size=16m' and 'noexec'. Assert that the mount Sources equal target/code, inputs and out, and that User == f'{uid}:{gid}'."
+      },
+      {
+        "id": "F10",
+        "severity": "low",
+        "title": "Recorded tool identity may not be the tool that ran",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: for tool in ('git','git-annex','datalad','docker','glimmer'): if not shutil.which(tool)",
+          "qualify.py: import glimmer.tools.run as runner ... 'runner_sha256':digest(Path(runner.__file__))",
+          "qualify.py: 'packages':{p:importlib.metadata.version(p) for p in ('glimmer-rokb','datalad','datalad-container','PyYAML')}"
+        ],
+        "impact": "glimmer and datalad are executed from PATH, but versions and runner_sha256 come from qualify.py's interpreter. A pipx or system install on PATH would make the evidence describe different code. The CLI dispatch module that maps run, rerun and validate is not hashed.",
+        "recommended_fix": "Require shutil.which('glimmer') and shutil.which('datalad') to resolve under sys.prefix, or invoke them via sys.executable -m. Hash the CLI entry-point module as well as run.py."
+      },
+      {
+        "id": "F11",
+        "severity": "low",
+        "title": "Evidence is lost on crash, and the bundle is not fully hash-bound",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: if 'configuration' in obj: check_runtime(obj)  (AssertionError aborts the whole run)",
+          "qualify.py: manifest=json.loads((attempt/'manifest.json').read_text())  (FileNotFoundError aborts)",
+          "qualify.py: (evidence/'qualification.json').write_text(...)  (only after all cases)",
+          "qualify.py: 'manifest_sha256':digest(attempt/'manifest.json')  (cli.txt, receipts and products are not hashed in the summary)"
+        ],
+        "impact": "Any runtime-check failure or missing manifest leaves no qualification.json for the failing case or later cases. It fails closed but discards the diagnostic record. The summary does not bind the retained receipts, CLI logs or products. The README example uses /tmp, which is cleaned on reboot.",
+        "recommended_fix": "Wrap each case in try/except, turn exceptions into failed checks with the error text, and write qualification.json in finally. Add sha256 for every file in each attempt directory. Recommend a durable --work path and archiving the evidence directory."
+      },
+      {
+        "id": "F12",
+        "severity": "low",
+        "title": "Fields named as annex keys are driver-computed digests of Git-tracked files",
+        "file": "examples/container-provenance/qualify.py",
+        "evidence": [
+          "qualify.py: command(['datalad','save','--to-git','-m','Record synthetic method source','code','inputs','expected','.gitignore'],root)",
+          "qualify.py: {'datalad-relative-path': path, 'datalad-annex-key': content_key, ...}",
+          "qualify.py: command(['git','config','annex.backends','SHA256E'],root)  (local .git/config of the template only, not propagated to clones)"
+        ],
+        "impact": "The byte checks are real, but these keys do not exist in git-annex and omit the extension real SHA256E keys carry. They will not match `git annex lookupkey`. The backend setting does not reach the clones where outputs are annexed. The label overstates annex involvement.",
+        "recommended_fix": "Either describe these as size+SHA-256 content pins in the README, or annex the inputs and read keys from `git annex lookupkey`. Drop the ineffective backend config, or set it in .gitattributes so clones inherit it."
+      }
+    ],
+    "remaining_scope": [
+      "No tools were used and nothing was executed. Every observation above comes from the supplied source and the preliminary JSON.",
+      "The fresh full qualification has not run. Several assertions postdate the preliminary run: image_rejected, method_failed, missing_product_detected, method_completed, both_comparisons_failed, no_container_created, the strengthened stopped check, source_sha256, runner_sha256 and source_revision. For the preliminary 'error' and 'mismatch' cases, the pass proves only the verdict string and the not-executed or definition-unchanged checks.",
+      "missing_product_detected requires `datalad containers-run --explicit --output out/numeric.json` to exit 0 when that output is absent. If DataLad fails instead, the verdict is 'error' with DataLad's stderr and the new check fails. Inspect the preliminary evidence/missing-output/cli.txt.",
+      "The glimmer CLI wrapper is not in the reviewed source. run.py exposes only `--mode run|reproduce`, so the mapping of `glimmer run`, `glimmer rerun` and `glimmer validate`, and the meaning of validate exit codes 0 and 2, are unverified here.",
+      "The DataLad and datalad-container behaviors relied on (`containers-add --url <local path>`, the call-fmt `{img}`/`{cmd}` substitution, and `docker start --attach` exit-code propagation) are external. They are evidenced only for DataLad 1.8.0, datalad-container 1.2.6 and Docker 29.2.1 on arm64 Ubuntu (kernel 6.8.0-100). Other platforms and image stores need their own runs, as the README states.",
+      "Explicitly out of scope per the request: hosted or untrusted execution, multi-tenancy, auth, kernel-escape and resource-exhaustion testing, vulnerability scanning, publisher attestation, archive durability, and scientific reproducibility."
+    ]
+  }
+}

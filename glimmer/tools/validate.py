@@ -242,14 +242,83 @@ def validate(rokb_path: Path, schema: dict):
     for node_id, (path, fm, _) in sidecar_by_id.items():
         node_type = fm.get("type")
         edges = fm.get("edges") or []
-        # Agent-protocol: findings/derivatives produced by an agent require reasoning-trace
-        if node_type in ("finding", "derivative") and fm.get("produced-by-agent") and not fm.get("reasoning-trace"):
+        # Agent-protocol: findings/derivatives/run-records produced by an agent require reasoning-trace
+        if node_type in ("finding", "derivative", "run-record") and fm.get("produced-by-agent") and not fm.get("reasoning-trace"):
             errors.append(f"{path}: {node_type} has `produced-by-agent` but no `reasoning-trace` (agent protocol)")
         # Findings must have based-on (the evidence chain)
         if node_type == "finding":
             if "based-on" not in fm or not fm.get("based-on"):
                 errors.append(f"{path}: finding node missing required `based-on` field (the evidence chain)")
         edge_types = {e.get("type") for e in edges if isinstance(e, dict)}
+
+        # run-record structured-field + lifecycle checks (v0.6). The generic
+        # required-field check (section 4) ensures method/command/status/inputs/
+        # outputs are present; here we check their SHAPE and graph consistency.
+        if node_type == "run-record":
+            status = fm.get("status")
+            # `method` must name a method node
+            m = fm.get("method")
+            if m:
+                if m not in index_ids:
+                    errors.append(f"{path}: run-record `method` `{m}` not in index")
+                elif (index_ids[m].get("type") or "method") != "method":
+                    errors.append(f"{path}: run-record `method` `{m}` is type `{index_ids[m].get('type')}`, expected `method`")
+                if m not in {e.get("target") for e in edges if isinstance(e, dict) and e.get("type") == "reruns"}:
+                    warnings.append(f"{path}: run-record `method` `{m}` not mirrored by a `reruns` edge")
+            # inputs: non-empty list of pins; each needs `node` (+ a content pin unless planned)
+            inputs = fm.get("inputs")
+            if not isinstance(inputs, list) or not inputs:
+                errors.append(f"{path}: run-record `inputs` must be a non-empty list of pins")
+                inputs = []
+            consumes_targets = {e.get("target") for e in edges if isinstance(e, dict) and e.get("type") == "consumes"}
+            for i, pin in enumerate(inputs):
+                if not isinstance(pin, dict) or not pin.get("node"):
+                    errors.append(f"{path}: run-record inputs[{i}] missing `node`"); continue
+                n = pin["node"]
+                if n not in index_ids:
+                    errors.append(f"{path}: run-record input node `{n}` not in index")
+                if status != "planned" and not (pin.get("datalad-annex-key") or pin.get("datalad-commit-sha")):
+                    errors.append(f"{path}: run-record input `{n}` has no content pin "
+                                  f"(datalad-annex-key/commit-sha) and status is `{status}` (pins required unless planned)")
+                if n not in consumes_targets:
+                    warnings.append(f"{path}: run-record input `{n}` not mirrored by a `consumes` edge")
+            # outputs: non-empty list of pins; each `node` must resolve to a derivative
+            outputs = fm.get("outputs")
+            if not isinstance(outputs, list) or not outputs:
+                errors.append(f"{path}: run-record `outputs` must be a non-empty list of pins")
+                outputs = []
+            regen_targets = {e.get("target") for e in edges if isinstance(e, dict) and e.get("type") == "regenerates"}
+            for i, pin in enumerate(outputs):
+                if not isinstance(pin, dict) or not pin.get("node"):
+                    errors.append(f"{path}: run-record outputs[{i}] missing `node`"); continue
+                n = pin["node"]
+                if n not in index_ids:
+                    errors.append(f"{path}: run-record output node `{n}` not in index")
+                elif (index_ids[n].get("type") or "derivative") != "derivative":
+                    errors.append(f"{path}: run-record output node `{n}` is type "
+                                  f"`{index_ids[n].get('type')}`, expected `derivative`")
+                if status == "executed" and not pin.get("expected-hash"):
+                    warnings.append(f"{path}: run-record output `{n}` has no `expected-hash` (status=executed)")
+                if n not in regen_targets:
+                    warnings.append(f"{path}: run-record output `{n}` not mirrored by a `regenerates` edge")
+            # reproduction-tolerance, if present, must be a map of {rel?,abs?} numerics
+            tol = fm.get("reproduction-tolerance")
+            if tol is not None:
+                buckets = ([tol.get("default")] + list((tol.get("quantities") or {}).values())) if isinstance(tol, dict) else None
+                if buckets is None:
+                    errors.append(f"{path}: run-record `reproduction-tolerance` must be a map")
+                else:
+                    for b in buckets:
+                        if b is None:
+                            continue
+                        if (not isinstance(b, dict) or any(k not in ("rel", "abs") for k in b)
+                                or any(not isinstance(v, (int, float)) for v in b.values())):
+                            errors.append(f"{path}: run-record `reproduction-tolerance` entries must be {{rel?,abs?}} numerics")
+                            break
+            # status=executed should carry the runner's verdict
+            if status == "executed" and not fm.get("replay-verdict"):
+                warnings.append(f"{path}: run-record status=executed but no `replay-verdict` "
+                                f"(run `glimmer run`/`rerun` with --write-verdict)")
 
         if node_type == "qc-artifact" and "conforms-to" not in edge_types:
             warnings.append(f"{path}: qc-artifact has no `conforms-to` edge to a standard")

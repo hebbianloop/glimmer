@@ -57,6 +57,40 @@
               └─────────────────────────────┘
 ```
 
+## Making the loop executable: `run-record`s (v0.6)
+
+Through v0.5 this loop was a *pattern* — the "launch agent runs" box had no runtime
+primitive; an analysis "run" left only a `derivative` behind, with no replayable record of
+the act that produced it. v0.6 makes the box executable with the [`run-record`](../glimmer/schema/schema.md#run-record)
+node type and the `glimmer run` / `glimmer rerun` runner (see [`proactive-provenance.md`](proactive-provenance.md)).
+
+The loop now closes *in the graph*:
+
+```
+concept ──decompose──▶ hypotheses
+   │                       │  each hypothesis gets one or more PLANNED run-records
+   │                       ▼  (tests-hypothesis → concept; inputs may be spec'd)
+   │            run-record [planned] ──gate──▶ [ready] ──glimmer run──▶ [executed]
+   │                       │  the runner: validates inputs against their standards,
+   │                       │  replays the command, hashes/verifies outputs
+   │                       ▼
+   │            regenerates → derivative   +   emits → finding
+   │                                                      │ addresses-concept
+   └──────────────────── feedback ◀───────────────────────┘
+        the next planning pass reads verdicts + findings, not memory
+```
+
+- **Plan** = a `concept` decomposed into hypotheses, each with `planned` run-records.
+- **Run** = `glimmer run` gates, executes, and records — advancing `planned → executed`
+  and writing a verdict. The **analysis agent** role below now *authors and runs*
+  run-records rather than emitting bare derivatives.
+- **Feedback** = the `replay-verdict` + emitted `finding` (which `addresses-concept`) are
+  what the next iteration reads. Re-running later (`glimmer rerun`) re-verifies the chain.
+
+This is why the loop is *self-sustaining*: every iteration leaves behind a replayable,
+standard-gated, self-verifying record, so the agent can't silently lose a finding or
+re-make a settled mistake — the verdict is in the graph.
+
 ## The four agent roles
 
 A Glimmer project typically uses four distinct agent roles, each operating with a different protocol mode and access scope.
@@ -158,6 +192,7 @@ Shipped in v0.3 (this loop now runs against the released schema):
 - `experiment` node type — for task/acquisition paradigms (Experiment Factory containers, jsPsych/PsychoPy tasks).
 - Cross-cutting edges: `addresses-concept` (finding/publication → concept), `tests-hypothesis` (experiment → concept), `extends-concept` / `subsumed-by` / `competes-with` / `superseded-by` (concept → concept), and the universal `contributed-by` attribution edge.
 - `persona` and `organization` node types + the in-graph attribution edges `authored-by`, `affiliated-with`, `funded-by`, `mentors`, `leads`, `part-of` (v0.3.1). A literature scout or synthesis agent can now resolve "who worked on this concept" by walking `authored-by` / `leads` to persona nodes rather than parsing free-text author strings.
+- `run-record` node type + the `glimmer run` / `glimmer rerun` runner (v0.6) — the executable unit of this loop: a `planned → ready → running → executed` invocation tied to its hypothesis via `tests-hypothesis`, producing `derivative`s (`regenerates`) and a `finding` (`emits`) with a recorded verdict. See [`proactive-provenance.md`](proactive-provenance.md).
 
 Still on the roadmap:
 
