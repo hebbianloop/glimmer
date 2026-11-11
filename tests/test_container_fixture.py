@@ -169,6 +169,13 @@ class QualificationHarnessTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
 
+    def test_archive_hash_matches_raw_bytes_across_read_boundaries(self):
+        data=b'abc'*500000
+        path=self.root/'content.bin';path.write_bytes(data)
+        expected='sha256:'+hashlib.sha256(data).hexdigest()
+        self.assertEqual(qualification.digest(path),expected)
+        self.assertEqual(entry.sha256(path),expected)
+
     def test_command_deadline_terminates_the_descendant_process_group(self):
         code="""import os,signal,time,pathlib
 if os.fork()==0:
@@ -180,7 +187,7 @@ time.sleep(60)
 """
         result=qualification.command([sys.executable,'-c',code],self.root,check=False,timeout=0.75)
         self.assertEqual(result.returncode,124)
-        self.assertEqual((self.root/'child-stopped').read_text(),str(entry.signal.SIGTERM))
+        self.assertEqual((self.root/'child-stopped').read_text(),str(int(entry.signal.SIGTERM)))
 
     def test_unexpected_case_error_retains_receipt_and_failed_result(self):
         evidence=self.root/'evidence';evidence.mkdir()

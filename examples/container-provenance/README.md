@@ -15,7 +15,7 @@ forwarding, or other workloads. The worker must be a nonroot user with permissio
 to control that VM's Docker daemon. Docker access is privileged host authority;
 this is a trusted test worker, not a sandbox for arbitrary uploaded code.
 
-Requirements: Python 3.11+, Git, git-annex, and Docker. The recorded live test uses
+Requirements: Python 3.10+, Git, git-annex, and Docker. The recorded live test uses
 Ubuntu 24.04, Python 3.12, and ARM64. Other platforms require their own run.
 
 From a fresh, clean Git checkout containing this example (including no ignored
