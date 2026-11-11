@@ -13,3 +13,4 @@ PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-poli
 UBUNTU_CODENAME=noble
 LOGO=ubuntu-logo
 MD5E-s45751808--d9322efb4c96d47eb9fceddcb66dcc34.tar
+/Users/shady/Library/Caches/colima virtiofs ro,relatime

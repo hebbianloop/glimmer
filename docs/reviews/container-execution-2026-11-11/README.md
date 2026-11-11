@@ -2,7 +2,7 @@
 
 One synthetic method passed a real execution and a fresh replay through the
 installed Glimmer CLI, DataLad, git-annex and Docker. All 13 acceptance scenarios
-passed at source commit `1e6df91d28209932f5213e92cde5245cccd985a6`.
+passed at source commit `aeee354dc335f4a646e82645f8de2b7047df161b`.
 The runner and schema are unchanged from the prerequisite
 [core PR13](https://github.com/hebbianloop/glimmer/pull/13), commit
 `44b6be49954fed29a7566abad1f637b8583e31e6`. This is example-level acceptance,
@@ -19,7 +19,7 @@ source and evidence hashes, actual image identity, engine version, each case's
 checks and the separate verdicts. [live-evidence.tar.gz](live-evidence.tar.gz)
 contains each tested definition, Glimmer manifest, helper receipt, CLI log,
 DataLad run message and output bytes. Its SHA-256 is
-`fcade144b79d9606e5ec97637942b866d55069c304cc8fd9f941f0ffa704d5f8`.
+`c40780a4215b4c2db18014805bb810866aa780068b55274d2cebd6d1ba2a8cc6`.
 
 | Scenario | Actual verdict | Additional acceptance evidence |
 |---|---|---|
@@ -43,8 +43,8 @@ positive cases bind the inline comparison oracle to the authored baseline and
 the executed archive to the recorded SHA-256. Final checks confirm the same
 image, unchanged source, and unchanged archive. No prior result is rewritten.
 
-The local regression suite passed **63/63** tests
-([log](macos-regression.txt)). Linux ran the same 63 tests: **60 passed and three
+The local regression suite passed **64/64** tests
+([log](macos-regression.txt)). Linux ran the same 64 tests: **61 passed and three
 optional NIfTI tests were skipped** because nibabel was not installed
 ([log](linux-regression.txt)). The emitted 12-node graph has zero schema errors
 and six advisory source-dataset warnings ([validation](validation.txt)). No
@@ -86,8 +86,8 @@ writable output mount, no capabilities, no new privileges, a nonroot UID,
 15-second method deadline. Receipts record actual engine configuration and
 write/visibility probes. This does not establish resistance to kernel escapes
 or resource-exhaustion attacks. The validator, DataLad and Docker helper remain
-trusted host processes. Image state was already present; this is not a
-cold-cache import or independent-machine reproduction.
+trusted host processes. Prior image state is recorded per attempt. These checks do not qualify a
+general cold-cache import path or independent-machine reproduction.
 
 ## Audit and retention
 
@@ -100,15 +100,24 @@ satisfies its stated conditions: `phase=complete`, `passed=true`, 13 passing
 cases, and all three final checks true. Claude performed static review only;
 the observed execution evidence was produced by this qualification run.
 
-Before deleting the VM, the exact image, Glimmer source Git bundle, template and
+After the first audited run, GitHub CI found a Python 3.10 incompatibility in
+the hashing API and a signal-enum assertion. Both were corrected. The
+[narrow compatibility audit](claude-compatibility-audit.json) accepts the
+streaming SHA-256 change; its remaining import and signal-format conditions
+are present in the source and exercised by the tests. The
+[Python 3.10 and 3.12 CI jobs](ci.json) passed, including installed-CLI smoke
+tests. All 13 live cases were then repeated successfully at the final source
+commit listed above in a fresh VM using the retained image archive.
+
+Before deleting the final VM, the exact image, Glimmer source Git bundle, template and
 all case Git bundles, and evidence were retained in private local Glimmer
-acceptance storage. The 43,917,789-byte payload's SHA-256 is
-`83e916178ca7998570825b887d88ff1349f1d9e76bd2dddfd2c59c84eb37958d`;
+acceptance storage. The 44,016,474-byte payload's SHA-256 is
+`f2cd950f845041a37ad8d16c65849b4db83c977c768024f467361a7b368f8351`;
 all 267 contained file hashes were verified. That local copy is not a hosted
 archive or a demonstrated restore service. The small Git review bundle alone
 does not contain the image required to recover annex content.
 
-The disposable profile was removed after retention. The user's existing default
+The disposable profiles were removed after retention. The user's existing default
 Colima profile remained stopped and unchanged.
 
 Live identity/provider authentication, hosted run persistence, credential and

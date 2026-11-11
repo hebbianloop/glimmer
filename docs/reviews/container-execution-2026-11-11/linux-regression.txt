@@ -10,6 +10,7 @@ test_oci_descriptor_must_reach_the_archive_config (test_container_fixture.Contai
 test_path_escape_is_rejected_without_extraction (test_container_fixture.ContainerFixtureTests.test_path_escape_is_rejected_without_extraction) ... ok
 test_post_execution_inspection_failure_cannot_report_success (test_container_fixture.ContainerFixtureTests.test_post_execution_inspection_failure_cannot_report_success) ... ok
 test_sigterm_leaves_failed_receipt_and_removes_container (test_container_fixture.ContainerFixtureTests.test_sigterm_leaves_failed_receipt_and_removes_container) ... ok
+test_archive_hash_matches_raw_bytes_across_read_boundaries (test_container_fixture.QualificationHarnessTests.test_archive_hash_matches_raw_bytes_across_read_boundaries) ... ok
 test_command_deadline_terminates_the_descendant_process_group (test_container_fixture.QualificationHarnessTests.test_command_deadline_terminates_the_descendant_process_group) ... ok
 test_engine_inventory_overrides_a_successful_helper_receipt (test_container_fixture.QualificationHarnessTests.test_engine_inventory_overrides_a_successful_helper_receipt) ... ok
 test_source_verification_rejects_untracked_transfer_metadata (test_container_fixture.QualificationHarnessTests.test_source_verification_rejects_untracked_transfer_metadata) ... ok
@@ -63,6 +64,6 @@ test_unpinned_citation_and_unverifiable_retriever_fail (test_run.RunnerTests.tes
 test_wrong_input_pin_stops_command (test_run.RunnerTests.test_wrong_input_pin_stops_command) ... ok
 
 ----------------------------------------------------------------------
-Ran 63 tests in 4.147s
+Ran 64 tests in 4.252s
 
 OK (skipped=3)
