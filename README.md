@@ -14,6 +14,11 @@ Existing standards (BIDS, DataLad, NIDM, Nipype) give your project syntactic str
 
 **Executable provenance (v0.6 development candidate).** `glimmer run` checks input content pins and available standard validators before executing a run-record. `glimmer rerun` distinguishes raw byte identity, normalized-content matching, numeric agreement and structural evidence checks. Host execution requires explicit opt-in; structural checks do not certify scientific interpretation. Start with [`docs/proactive-provenance.md`](docs/proactive-provenance.md) and the [portable synthetic fixture](examples/synthetic-provenance/).
 
+The [container qualification example](examples/container-provenance/) exercises
+the installed CLI with real DataLad, git-annex, and Docker in a disposable Linux
+environment. It retains separate execution, replay, and failure receipts for one
+synthetic method; hosted execution and provider authentication remain separate.
+
 Glimmer is domain-agnostic. The canonical worked example in this repo is neuroimaging because that's where standards like BIDS and tools like DataLad and Nipype are most developed — but the architectural pattern (typed-entity graph over a versioned-data substrate) applies to any compute-intensive scientific domain backed by a mature standards ecosystem.
 
 Glimmer is the architectural pattern + a reference implementation. The original architectural argument is in the unpublished CAISC submission (see [`docs/paper-citation.md`](docs/paper-citation.md)).
