@@ -1,0 +1,58 @@
+{
+  "model": "claude-opus-5-5",
+  "scope": "Static review of supplied source; no tools or independent execution",
+  "prompt_sha256": "2dc29335866b5c63077a76a0e0d579e05817481d8bc90186555d745667b2369c",
+  "response": {
+    "verdict": "approve_pending_live_run",
+    "verdict_rationale": "Static review of the supplied final files finds no unresolved material finding. F2-F6 and F8-F11 are implemented as recommended or by equivalent means. F7 is resolved within its explicitly limited scope. F12 is resolved, with one dead config line left over. F1 is closed by checkout verification, not by the Git bundle clone your summary describes: that bundle-clone code is not in the supplied qualify.py or README. Acceptance still depends on the in-progress live run. Many new assertions (template_definition_intact, standard_failure_only, engine_connection_failed, archive_bound, declared_tolerance, observed_oracle, engine_cleanup_verified) have not yet produced live evidence, and several match exact runner or Docker strings. Each fails closed, so a wrong string produces a failed case, not a false pass. Approval requires qualification.json with phase 'complete', passed true, all 13 cases passing, and the final checks same_image, archive_unchanged and source_unchanged all true.",
+    "finding_closure": {
+      "F1": "Closed by verification, not by a bundle clone. verify_source derives HEAD and rejects a mismatched --source-revision. It requires a clean `git status --porcelain --untracked-files=all --ignored` over the example, glimmer/ and the test file. It rejects ._* entries and requires the on-disk example file set to equal `git ls-files`. It also checks that the installed run.py and cli.py match the repository. Because of these checks, prepare()'s copytree can copy only clean tracked bytes. source_unchanged re-verifies at the end. Your summary says 'real clean Git bundle clone'; the supplied code still uses shutil.copytree. Either correct the summary or supply the bundle code. Neither choice is a blocker.",
+      "F2": "Closed. Each negative gate case now asserts its specific cause: pin_failure_only, standard_failure_only, validator_unavailable and input_unavailable. only_intended_mutations checks the exact set of git-status paths for every case, with an empty set for execute, replay and unavailable-engine.",
+      "F3": "Closed. The tolerance is declared as {'default': {'abs': 0.0, 'rel': 0.0}}, and declared_tolerance asserts the applied tol for each of the three checks.",
+      "F4": "Closed. The archive is hashed once at startup. archive_bound requires the receipt hash, the run-record container-digest and the startup hash to be equal, and archive_unchanged rechecks at the end. image_id and image_platform are recorded, same_image compares them across the positive cases, and image_store records DriverStatus. Pinning image_id to the README python@sha256 digest remains optional and was not done.",
+      "F5": "Closed. template_definition_intact compares the run-record bytes to the template, and the empty source_status set is required. authored_oracle and observed_oracle tie the inline oracle and the runner's observed expected values to the committed baseline. The README now says the oracle is the inline copy.",
+      "F6": "Closed. command() runs a process group and sends SIGTERM, then SIGKILL, at the deadline, returning 124 without aborting. The helper turns SIGTERM and SIGINT into exceptions, removes the container by its reserved name whenever create was attempted, and keeps 'timed-out' plus kill_error when kill fails. The driver queries the Docker inventory after every case and force-removes leftovers while failing the check. Unit tests cover create-timeout, an invalid ID, kill failure, SIGTERM and process-group termination.",
+      "F7": "Closed within limited scope. The index \u2192 manifest \u2192 config chain is verified, a disagreeing index is rejected with a unit test, the modern fixture is now a real manifest, and image_preexisting is recorded. Load stdout is still not parsed, and the README disclaims a cold-cache import test.",
+      "F8": "Closed. Receipts now include failed_step and error_stderr. engine_connection_failed requires parsed archive IDs, failed_step 'load' and the nonexistent socket name in stderr.",
+      "F9": "Closed. The probe now writes to /var/tmp and requires EROFS. check_runtime asserts the Tmpfs options, the user string and the mount sources.",
+      "F10": "Closed as recommended. glimmer, datalad and python must resolve within sys.prefix or to sys.executable, and cli.py is hashed alongside run.py.",
+      "F11": "Closed. Each case runs in try/except and its evidence is retained. qualification.json is written at preparation, after each case and in finally. Per-attempt and per-bundle sha256 maps are recorded. The README uses /var/tmp and asks for evidence to be retained.",
+      "F12": "Closed. The six source pins are now path plus full commit SHA, the fabricated annex-key fields are gone, and only the image is annexed. One leftover: `git config annex.backends SHA256E` is still in prepare(). It is most likely overridden by DataLad's default `.gitattributes` `annex.backend=MD5E`. Integrity does not depend on it, because container-digest is a driver-computed SHA-256 of the file. Removing it is optional cleanup."
+    },
+    "unresolved_material_findings": [],
+    "non_blocking_notes": [
+      {
+        "id": "F1",
+        "type": "claim_discrepancy",
+        "reason": "The closure summary describes a Git bundle clone that the supplied files do not contain.",
+        "evidence": "qualify.py prepare(): `for folder in ('code','inputs','expected'): shutil.copytree(HERE/folder,root/folder)`"
+      },
+      {
+        "id": "F1/F10",
+        "type": "operational_hardening",
+        "reason": "Running the README unit-test command in the same checkout can create __pycache__ under examples/container-provenance. The test imports qualify.py and container_entry.py via exec_module, so later qualification will refuse the dirty source. An editable install would also dirty glimmer/ during the run, so source_unchanged would fail. Both fail closed and the README warns about ignored cache files. Setting sys.dont_write_bytecode in the test, or running the tests from a separate checkout, avoids the trap.",
+        "evidence": "tests/test_container_fixture.py: spec.loader.exec_module(...); qualify.py verify_source: status ... '--ignored' ... paths=['examples/container-provenance','glimmer',...]"
+      },
+      {
+        "id": "F6",
+        "type": "optional_hardening",
+        "reason": "If create fails without creating the named container, `rm --force <name>` is likely to fail. The status then becomes 'cleanup-failed' instead of 'failed', which is a misleading label on a path no planned case exercises. A signal arriving inside finally, or an exception there, can also skip the receipt. The driver's inventory check still covers any leaked container.",
+        "evidence": "container_entry.py finally: `if create_attempted: ... docker('rm','--force',container_name) ... record['status'] = 'cleanup-failed'`"
+      },
+      {
+        "id": "F10",
+        "type": "optional_hardening",
+        "reason": "Only run.py and cli.py are checked against the repository. validate.py, which cli.py dispatches to via runpy, and any other modules run.py imports are covered only by the package version and pip freeze.",
+        "evidence": "verify_source: `for module,relative in ((runner,'glimmer/tools/run.py'),(cli,'glimmer/tools/cli.py'))`; cli.py: `_run(\"validate.py\", [args.path])`"
+      }
+    ],
+    "residual_limits": [
+      "No tools were used and nothing was executed. These conclusions come from the supplied files and your stated test count. The 63 passing tests and the in-progress live run are unverified here, and only about 17 tests appear in the supplied test file.",
+      "Several checks match exact external strings: 'python rc=1', 'validator unavailable:', 'declared output missing: out/numeric.json', 'container file unavailable or digest mismatch' and the Docker socket message. They also match manifest keys from run.py, which was not supplied in this round. A mismatch fails closed, but only the live run can show whether these hold.",
+      "template_definition_intact requires inject()'s YAML re-serialization to be byte-identical to the template. This looks likely, since both sides use the same write_node and safe_dump settings, but the live run will confirm it.",
+      "Evidence applies to one engine, architecture and image store on a single VM. A fresh clone with a fresh container is not an independent-machine reproduction or a cold-cache image import, as the README states.",
+      "Receipts and evidence hashes are local, unsigned files. They are not tamper-proof, and nothing here establishes archival durability.",
+      "Deliberately out of scope: hosted or untrusted execution, multi-tenancy, credential isolation, kernel-escape and resource-exhaustion testing, vulnerability scanning, publisher attestation, the default DataLad Docker adapter, and scientific validity."
+    ]
+  }
+}

@@ -49,6 +49,7 @@ def _run_args(args, mode):
     if args.offline:       argv += ["--offline"]
     if args.no_container:  argv += ["--no-container"]
     if args.no_gate:       argv += ["--no-gate"]
+    if args.run_root:      argv += ["--run-root", args.run_root]
     return argv
 
 
@@ -63,6 +64,7 @@ def cmd_rerun(args):
 
 
 def _add_run_flags(p):
+    p.add_argument("--run-root", help="explicit project working directory")
     p.add_argument("rokb", help="path to an RO-KB directory")
     p.add_argument("node_id", help="run-record id, or 'all'")
     p.add_argument("--manifest", default=None, help="write the provenance manifest JSON here")

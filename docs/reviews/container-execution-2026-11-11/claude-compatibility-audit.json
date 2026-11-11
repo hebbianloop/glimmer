@@ -1,0 +1,36 @@
+{
+  "model": "claude-opus-5-5",
+  "scope": "Static review of the Python 3.10 compatibility patch",
+  "prompt_sha256": "f643af989aee421c1102c1b520895f591fa31a459ba694c7bd988b414c950fe2",
+  "response": {
+    "verdict": "approve, conditional on two items not visible in this diff",
+    "scope": "Static review of commit aeee354 only. No execution. Live run and the 3.10/3.12 CI results are to be verified separately.",
+    "material_findings": [
+      {
+        "id": "hash-equivalence",
+        "status": "pass",
+        "detail": "Both replacements, in container_entry.py and qualify.py, open the file in binary mode and read 1 MiB chunks until b''. Each chunk goes to a single sha256 object, and the result keeps the 'sha256:' + hexdigest format. This gives the same bytes and output as hashlib.file_digest(stream, 'sha256'), memory stays bounded, and it uses only APIs available in 3.10."
+      },
+      {
+        "id": "hash-test-meaningful",
+        "status": "pass",
+        "detail": "The test data is 1,500,000 bytes, which is larger than one 1,048,576-byte read. So the test covers a full chunk, a partial final chunk, and the empty-read stop. The expected value comes from hashlib.sha256(data) on the raw bytes, not from either function under test, and both callers are checked. It would catch a dropped chunk, a repeated chunk, text-mode reads, or a prefix change."
+      },
+      {
+        "id": "hash-test-import",
+        "status": "unverified",
+        "detail": "The new test calls hashlib.sha256 directly. The diff adds no import, so tests/test_container_fixture.py must already import hashlib at module level. If it does not, the test fails with NameError on every Python version."
+      },
+      {
+        "id": "signal-assertion",
+        "status": "conditionally pass",
+        "detail": "str(int(entry.signal.SIGTERM)) is '15' on all supported versions, so the version-dependent Signals str/repr no longer matters. The assertion stays meaningful: it still requires the descendant itself to record SIGTERM (not SIGKILL, and not an absent file). It is only correct if the hidden child code writes the integer form, e.g. str(signum) from the handler argument, or str(int(...)). If the child writes str(signal.SIGTERM) or the enum name, it produces the same version-dependent string as before, and the test will still fail on one of the CI versions. Confirm the child's write expression, which is outside the shown hunk."
+      },
+      {
+        "id": "readme-3.10-claim",
+        "status": "residual, not assessable from this diff",
+        "detail": "Lowering the requirement to 3.10+ is only accurate if no other 3.11+ features remain in the example or tests, such as tomllib, datetime.UTC, enum.StrEnum, ExceptionGroup/except*, typing.Self, or asyncio.TaskGroup. The 3.10 CI run is the deciding check. The recorded live evidence remains Python 3.12 only, and the README already states this correctly."
+      }
+    ]
+  }
+}

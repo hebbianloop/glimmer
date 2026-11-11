@@ -1,0 +1,13 @@
+Glimmer schema: 0.6.0
+Profiles: container-fixture (local), neuroimaging (curated)
+Target: /tmp/glimmer-qualification-final/template/rokb
+Errors:   0
+Warnings: 6
+
+--- warnings ---
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-compute-code.md: dataset has no `produced-by` edge
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-container-registration.md: dataset has no `produced-by` edge
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-expected-baseline.md: dataset has no `produced-by` edge
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-values.md: dataset has no `produced-by` edge
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-container-entry.md: dataset has no `produced-by` edge
+  ! /tmp/glimmer-qualification-final/template/rokb/datasets/dataset-validator-code.md: dataset has no `produced-by` edge

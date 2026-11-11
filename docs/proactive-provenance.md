@@ -1,180 +1,173 @@
-# Proactive Provenance — the `run-record` and the node runner
+# Executable provenance: supported checks and their limits
 
-> Glimmer v0.6.0. The schema records *what* an output is; proactive provenance makes
-> the graph **executable** — so the claim "this output reproduces" is a contract the
-> machine can check, not a footnote you trust.
+The v0.6 runner executes trusted local `run-record` nodes and records bounded
+verification results. This branch is a development candidate, not a released
+package or an evaluated autonomous scientist. Install it with `pip install .`;
+the installed command is `glimmer`. `pip install '.[imaging]'` adds NIfTI support.
 
-The 2010s gave us reproducible pipelines. Glimmer v0.3–v0.5 gave us a typed graph over
-them — datasets, methods, derivatives, findings — each content-hashed. But the graph was
-**descriptive**: a `derivative` recorded an `output-hash`, yet nothing could re-execute
-the computation and confirm it. The only verification script in the repo
-(`examples/ds000114-nipype/verify.py`) re-hashed files already on disk and said so:
-*"not a full re-run."* v0.6.0 closes that gap with one new core node type and one tool.
+## Run and reproduce
 
-## Why this matters (the failure it fixes)
-
-An agent analyzing a dataset, with no executable contract to anchor to, re-derives the
-same numbers different ways, makes the same data-processing mistakes, and forgets prior
-findings. Each of those is a reproducibility failure in miniature. A `run-record` makes
-the unit of work **replayable, gated, and self-verifying**: the agent (or a human, or CI)
-runs it, gets a verdict, and the verdict — not a memory or a hope — is what the next step
-reads. This is reproducibility as a property the substrate *enforces*, AI-native by
-construction.
-
-## The `run-record`: one concrete, replayable invocation
-
-A `method` is a reusable tool; a `derivative` is a product. Neither is *the act*. The
-`run-record` is the PROV `Activity`: **this** command, on **these** pinned inputs, in
-**this** container, testing **this** hypothesis, on **this** date — binding a method +
-pinned inputs + expected outputs + the environment + a verdict.
-
-It is the **executable unit of the agentic loop** (see [`agentic-loop.md`](agentic-loop.md)).
-Authored as part of a plan and advanced through a lifecycle:
-
-```
-planned ──gate──▶ ready ──exec──▶ running ──▶ executed
-   │                                            │
-   │ (inputs may be spec'd/unpinned)            └─▶ failed | superseded
+```bash
+# Build all synthetic sidecars and the index from committed sources.
+python examples/synthetic-provenance/emit_graph.py
+# Run the complete installed-CLI smoke check, including negative cases.
+python examples/synthetic-provenance/smoke.py
 ```
 
-- **planned** — written when a `concept` is decomposed into hypotheses; inputs may be a
-  *spec* (modality / n / standard) rather than a pin. (The affordance v0.7 minimal-path
-  reproduction builds on.)
-- **ready** — inputs pinned and standard-valid: the runner's gate passed.
-- **running / executed / failed** — the runner advances these and writes the verdict.
+`glimmer run <rokb> <id>` executes and records products. `glimmer rerun <rokb>
+<id>` executes and compares products with previously declared expectations.
+IDs can be comma-separated or `all`; `all` includes negative fixtures and any
+unprepared downstream runs, so its exit status is not a benchmark score.
 
-Full field list: [`glimmer/schema/schema.md` → run-record](../glimmer/schema/schema.md#run-record).
-The required core is `method`, `command`, `provenance-mode`, `status`, `inputs`, `outputs`.
+A graph in a directory named `rokb` uses its parent as the working directory.
+An index directly at the project root uses that directory. Other layouts pass
+`--run-root`. `--manifest` saves results; `--write-verdict` updates the run-record.
+A failed check never replaces an expected output hash. Failed verdicts set the
+record's status to `failed`.
 
-## The runner: `glimmer run` and `glimmer rerun`
+## Inputs and standards
 
-Two modes over one engine (`glimmer/tools/run.py`). **The runner is for running, not just
-reproducing** — reproduction is the special case of re-running something already recorded.
+Every executed input needs a resolvable node, available file and content pin.
+`planned` records may describe unpinned inputs, but cannot execute until pinned.
 
-| command | mode | what it does |
+- Hash-based `datalad-annex-key` values using SHA256/SHA256E or MD5/MD5E are
+  checked against actual file bytes and size, including offline. SHA-256 is
+  preferred. Placeholder keys and unsupported backends fail.
+- `datalad-commit-sha` requires a full commit identifier and compares the file's
+  Git blob at that revision with current bytes. Symlink blobs and unresolved
+  repositories fail; use an annex content key for annexed input bytes.
+- If both pins are supplied, both must match. `--no-gate` never bypasses pin checks.
+- Standards declared by an input pin or its node’s `conforms-to` edges must
+  exist and have an available validator that passes. A run’s `requires-standard`
+  edges must map to these input declarations; an unbound requirement fails.
+  Missing tools or validator declarations fail. `{path}` substitution preserves
+  paths with spaces. A `kind: glimmer` validator checks graph schema only; it
+  does not establish BIDS or scientific data conformance.
+- `--offline` prevents automatic `datalad get`. `--no-gate` skips standards only,
+  reports `unchecked`, exits unsuccessfully and cannot count as reproduction.
+
+Commands and validator strings are parsed as argv, without an implicit shell.
+Pipelines, expansion and redirection require an explicit shell command. These
+records execute code and are for reviewed, trusted local graphs; this is not a
+sandbox for downloaded or federated records.
+The runner does not independently pin the implementation of a method or its
+validator. Include source files as declared pinned inputs when code identity is
+part of the check, and review the command and environment configuration.
+
+## Execution environment
+
+Without `--no-container`, the runner requires:
+
+1. `container-image`: a **registered DataLad container name**.
+2. `container-digest`: the full raw SHA-256 of that registration's available
+   local image file, such as a SIF image.
+3. DataLad, its container extension and a working runtime configured by the
+   project.
+
+The runner resolves the registration through `datalad -f json containers-list`,
+checks the local file hash, and calls `containers-run -n <registered-name>` with
+explicit inputs and outputs. It does not substitute an OCI URL/digest for the
+registration name. Missing registration, image, extension or runtime fails;
+there is no automatic host fallback. OCI registry manifest digests are not
+local image-file hashes. The configured execution wrapper must itself be trusted.
+
+An explicit `--no-container` runs on the host and records `pinned: false`.
+A matching result in this mode does not establish environment reproducibility.
+Regression tests mock the registered-container interface; the portable smoke
+example uses the host. Neither is evidence of a successful real container run.
+The invocation follows the upstream [containers-run interface](https://docs.datalad.org/projects/container/en/latest/generated/man/datalad-containers-run.html).
+
+Every output must exist as a file and be refreshed by the command. Unchanged
+pre-existing outputs cannot substitute for execution. Outputs cannot alias
+pinned inputs, and inputs are re-hashed after the command to detect mutation.
+File freshness is an accidental-error check, not proof against a malicious
+command that deliberately forges its outputs.
+
+## Output verification
+
+Output-pin `tier` is explicit where needed. Defaults are byte identity for
+`deterministic`, numeric tolerance for `stochastic`, and structural checks for
+`agent-inferred`.
+
+| Tier | Successful verdict | What was checked |
 |---|---|---|
-| `glimmer run <rokb> <id>` | forward | gate → replay → hash outputs → emit/record products; advance `ready→executed` |
-| `glimmer rerun <rokb> <id>` | reproduce | re-execute and **compare** outputs to what was recorded, per tier |
+| `byte-identical` | `verified` | Raw output bytes match `expected-hash`. |
+| `normalized-content` | `normalized-match` | The documented normalized representation matches `expected-hash`; raw bytes may differ. |
+| `numeric-tolerance` | `reproduced-within-tolerance` | Each declared `expected-values` quantity passes a finite numeric comparison. |
+| `structural` | `structurally-valid` | Fresh JSON outputs contain a nonempty trace and supported numeric citations matching pinned evidence. |
 
-`<id>` is a run-record id, a comma-separated list, or `all` (dependency-ordered so a run
-that produces another's input goes first). Flags: `--manifest <path>`, `--write-verdict`,
-`--offline`, `--no-container`, `--no-gate`.
+Mixed output tiers report `checks-passed` only if all their respective checks
+pass. No result implies another tier. Forward execution reports `executed`,
+not reproduced; structural outputs must also pass evidence checks in forward mode.
 
-The engine, per run-record:
+### Normalized content
 
-1. **Standards gate.** Each input must be (a) available/pinned (`datalad get` unless
-   `--offline`; annex-key / commit-sha match) **and** (b) valid against its declared
-   standard. A failed gate ⇒ verdict `gate-failed`, **no execution**.
-2. **Execute.** Replay `command` pinned to `container-digest` via `datalad containers-run`;
-   fall back to `datalad run`, then a host subprocess (only with `--no-container`, recorded
-   as a dirty environment). Cwd is the project root (the rokb's parent — where `code/`,
-   `inputs/`, `out/` live).
-3. **Verify** (reproduce mode) at the tier selected by `provenance-mode`.
-4. **Record.** Write the provenance manifest (JSON); with `--write-verdict`, write the
-   `validation-gate` + `replay-verdict` blocks back into the sidecar (and `status`).
+JSON is serialized with sorted keys. NIfTI normalization excludes the documented
+volatile header fields (`descrip`, `db_name`, `aux_file`, `cal_min`, `cal_max`,
+`glmax`, `glmin`) while retaining other header bytes, extensions, shape, affine,
+dtype, scaling and exact stored voxel values. GIFTI XML is serialized with metadata retained because metadata can
+carry scientific meaning. The verdict records the normalization or raw fallback.
+A fallback never establishes normalized equivalence. Names containing multiple
+dots are recognized by their final format suffix.
 
-## The three verification tiers
+### Numeric agreement
 
-Reproducibility is not one thing. The tier is chosen by `provenance-mode` and can be
-overridden per output via the output-pin's `tier`.
+`reproduction-tolerance` supplies `default` and optional per-quantity `{rel, abs}`
+limits. The rule is `abs(observed - expected) <= max(abs, rel * abs(expected))`.
+An empty tolerance means exact equality. Expectations must be nonempty; values
+and tolerances must be finite numbers, not booleans, with nonnegative tolerances.
+NaN, infinity, missing quantities and invalid structures fail.
 
-### byte-identical (`deterministic`)
-Re-execute; the output hash must match exactly — **after normalization**, because two
-*correct* re-runs of an FSL/Nipype step differ in volatile header bytes. The runner
-normalizes before hashing and records how:
-- **NIfTI** (`.nii`/`.nii.gz`): blank `descrip`/`db_name`/`aux_file`, zero `cal_*`/`gl*`,
-  keep affine + dtype + voxels exactly → `normalization: nifti-header-zeroed`. (Realizes
-  the long-promised normalization in `examples/ds000114-nipype/workflow.py`.)
-- **GIFTI** (`.gii`): strip the `<MetaData>` block, canonicalize XML.
-- **JSON**: canonical re-serialization (sorted keys).
-- nibabel absent ⇒ raw compare, recorded as `raw (nibabel unavailable)` — never a silent
-  pass.
+### Structural evidence
 
-### numeric-within-tolerance (`stochastic` + `reproduction-tolerance`)
-Re-derive a number from source and assert `abs(obs − exp) ≤ max(abs, rel·|exp|)`. The
-expected value lives in the output-pin's `expected-values` (the published number); the
-tolerance declares how close counts (empty ⇒ exact). This is the honest guarantee for
-stochastic analyses **and the mechanism for reproducing a paper's reported numbers from
-source.**
-
-### structural (`agent-inferred`)
-LLM/agent prose is not hash-reproducible. Verification is structural (per
-[`agent-protocol.md`](agent-protocol.md)): the `reasoning-trace` must cite real nodes, those
-nodes must hold the claimed values, and the `retriever-manifest` (if any) must be
-self-consistent — the analogue of SHA re-execution for the stochastic regime
-([`retrieval-adapter.md`](retrieval-adapter.md)).
-
-## Standards as a runtime gate (referenced, runner-enforced, delegated)
-
-A run-record only **references** the standards its inputs must satisfy (input-pin
-`conforms-to`, the `requires-standard` edge). It never reimplements validation. The
-**runner enforces** the gate; the **check is delegated** to the standard's `validator`
-hint:
-
-```yaml
-# on a `standard` node
-validator: {tool: bids-validator, command: "bids-validator {path}", kind: external}
-# or {kind: glimmer} to use `glimmer validate` on the graph
-```
-
-`{path}` is the input under test; a zero exit means conformant. Unknown/missing validator
-⇒ the gate falls back to `glimmer validate` and records `none (unchecked)` — honest, never
-a silent pass. The outcome lands in the verdict's `validation-gate` block, so "ran on
-BIDS-valid data" becomes a recorded, enforced fact.
-
-## The provenance manifest
-
-`--manifest <path>` writes a JSON superset of the old `verification-report.json`:
+The runner checks `reasoning-trace` in the **new output JSON**, not just an old
+sidecar. It requires `nodes-accessed`, `metrics-cited`, `evidence-summary`,
+`model-identifier` and `timestamp`. Citations must resolve to pinned inputs.
+Each `metrics-cited` entry uses this shape:
 
 ```json
 {
-  "glimmer-run-version": "glimmer-run 0.6.0",
-  "summary": {"verified": 2, "reproduced-within-tolerance": 1, "structurally-valid": 1,
-              "total": 4, "reproducibility-rate-pct": 100.0},
-  "runs": [ { "node": "...", "verdict": "verified", "tier": "byte-identical",
-              "validation-gate": {...}, "environment": {...}, "outputs": [...],
-              "numeric-checks": [...], "structural-checks": [...], "exit-code": 0 } ]
+  "mean-signal": {
+    "node": "derivative-synth-mean",
+    "value": 0.5,
+    "tolerance": {"abs": 0.0}
+  }
 }
 ```
 
-A tampered `expected-hash` ⇒ `mismatch`; an unreachable input ⇒ `inputs-unavailable`
-(recording `data-liveness`); a non-pinned-container run ⇒ `environment.resolved-via: host`.
-The verdict is never silently weaker than the claim.
+The named quantity is read from that input's JSON object and compared with the
+claimed value. Prose-only metric rationales are descriptive records, not
+executable checks. Retriever snapshot verification is not implemented; a trace
+claiming a `retriever-manifest` therefore fails rather than passing from a model
+name alone. Unsupported evidence formats fail explicitly.
 
-## Method registry affordances (v0.6 lightweight; full program v0.7)
+This checks citation/value consistency. It does **not** prove that the narrative
+follows from the evidence, that the method is scientifically sound, or that an
+agent's reported reasoning is faithful. The synthetic summary is a Python script,
+not an LLM evaluation; its noisy “accuracy” is a toy value, not a fitted model.
 
-A method is a reusable f(x), and its *semantic pattern* can outlive one project's graph.
-v0.6 adds:
-- `registry-ref` — a cross-project namespaced id naming the canonical pattern (e.g.
-  `glimmer-methods:skullstrip-t1w`); `implements` is its navigable edge.
-- `equivalent-to` — two methods that produce the same outputs. **Certified, not asserted:**
-  `certify_equivalence(rokb, run_a, run_b)` runs both on the same input and confirms the
-  outputs match (byte-identical, or within tolerance). An equivalent-but-faster/cleaner
-  implementation is tolerated; the pattern links back.
-- `refines` — a tuned / fine-tuned variant.
+## Reports, equivalence and migration
 
-A dedicated `method-pattern` node type, a published cross-institution registry, and
-minimal-path reproduction of arbitrary external papers are **deferred to v0.7**.
+Manifests separate forward `execution` counts from `reproduction` counts by
+verdict. There is no pooled reproducibility percentage that mixes hash matches,
+structural checks, execution or negative controls. Negative cases remain visible;
+a benchmark must declare its positive and negative sets separately.
 
-## Worked example
+`certify_equivalence` compares nonempty output sets of the same size, using
+matching input content. It snapshots A before B can overwrite a shared output
+path. Numeric comparison requires matching nonempty key sets and finite values.
+This establishes agreement on the observed inputs only, not universal equivalence
+of methods. Cyclic dependencies and ambiguous output producers fail ordering.
 
-[`examples/synthetic-provenance/`](../examples/synthetic-provenance/) exercises the loop +
-all three tiers + the standards gate + equivalence certification, with no real data and no
-heavy dependencies. Start there.
+Migration from the earlier PR implementation:
 
-## Using it downstream (e.g. an ADS dissertation harness)
+- Opt in to host execution, or configure a registered, hash-pinned image.
+- Replace synthetic placeholder input keys with actual content pins.
+- Change normalized-output pins from `byte-identical` to `normalized-content`;
+  keep raw SHA-256 expectations only for `byte-identical`.
+- Emit structured, checkable evidence in the actual output for structural runs.
+- Consumers of `reproducibility-rate-pct` must use the separate verdict counts.
 
-The runner's public surface is importable, so a domain harness re-uses the audited engine
-instead of re-implementing verification:
-
-```python
-from glimmer.tools.run import load_graph, run_node, write_manifest, RunVerdict, sha256_file
-
-# one run-record per published number, each with a reproduction-tolerance and a
-# tests-hypothesis edge to its concept:
-verdicts = [run_node(ROKB, rid, mode="reproduce") for rid in claim_run_ids]
-write_manifest(verdicts, "docs/data/provenance_manifest.json")
-```
-
-The domain repo supplies only data + command + tolerance + standard references; Glimmer
-supplies the gate, the tiers, the normalization, and the verdict.
+No new core node or edge type is introduced. This hardening does not implement
+ADS integration, actual LLM evaluation, public multi-subject benchmarking or
+cross-project federation. Those require separate acceptance evidence.

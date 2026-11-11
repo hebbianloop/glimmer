@@ -4,7 +4,7 @@
   python code/compute_mean.py inputs/signal.json out/mean.json
 
 Writes {"mean-signal": <mean>}. Running it twice on the same input yields a
-byte-identical (json-canonical) result — the byte-identical verification tier.
+matching canonical JSON content — the normalized-content verification tier.
 """
 import json, sys
 from pathlib import Path

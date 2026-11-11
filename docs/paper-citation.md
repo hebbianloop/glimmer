@@ -1,25 +1,24 @@
 # How to cite Glimmer
 
-If you use Glimmer in your research, please cite the paper that introduced the architecture:
+If you use Glimmer in your research, cite the software revision you actually used. The architecture manuscript is unpublished; do not describe it as accepted conference proceedings:
 
 ```bibtex
-@inproceedings{eldamaty2026glimmer,
+@unpublished{eldamaty2026glimmer,
   title={Reproducibility as Knowledge Graph Navigation: Glimmer, a Research-Object Knowledge Base for AI-Native Neuroimaging Analysis},
   author={El Damaty, Shady},
-  booktitle={Conference for AI Scientists 2026 (CAISc 2026)},
   year={2026},
-  note={Track 2: Open-Ended Problems}
+  note={Unpublished manuscript}
 }
 ```
 
-And the code:
+For the code, include the exact commit or an archived release identifier with your citation. The branch package is a development candidate:
 
 ```bibtex
 @software{glimmer2026,
   title={Glimmer: a Research-Object Knowledge Base for AI-Native Scientific Workflows},
   author={El Damaty, Shady},
   url={https://github.com/hebbianloop/glimmer},
-  version={0.6.0},
+  version={0.6.0.dev1},
   year={2026}
 }
 ```
