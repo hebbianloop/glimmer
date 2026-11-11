@@ -1,0 +1,68 @@
+test_classic_archive_uses_verified_config_digest (test_container_fixture.ContainerFixtureTests.test_classic_archive_uses_verified_config_digest) ... ok
+test_containerd_archive_also_accepts_verified_oci_descriptor (test_container_fixture.ContainerFixtureTests.test_containerd_archive_also_accepts_verified_oci_descriptor) ... ok
+test_corrupt_config_is_rejected (test_container_fixture.ContainerFixtureTests.test_corrupt_config_is_rejected) ... ok
+test_create_timeout_cleans_by_reserved_name_and_retains_diagnostic (test_container_fixture.ContainerFixtureTests.test_create_timeout_cleans_by_reserved_name_and_retains_diagnostic) ... ok
+test_invalid_create_identifier_still_cleans_by_name (test_container_fixture.ContainerFixtureTests.test_invalid_create_identifier_still_cleans_by_name) ... ok
+test_kill_failure_preserves_timeout_and_attempts_removal (test_container_fixture.ContainerFixtureTests.test_kill_failure_preserves_timeout_and_attempts_removal) ... ok
+test_linked_config_is_rejected (test_container_fixture.ContainerFixtureTests.test_linked_config_is_rejected) ... ok
+test_multiple_images_are_rejected (test_container_fixture.ContainerFixtureTests.test_multiple_images_are_rejected) ... ok
+test_oci_descriptor_must_reach_the_archive_config (test_container_fixture.ContainerFixtureTests.test_oci_descriptor_must_reach_the_archive_config) ... ok
+test_path_escape_is_rejected_without_extraction (test_container_fixture.ContainerFixtureTests.test_path_escape_is_rejected_without_extraction) ... ok
+test_post_execution_inspection_failure_cannot_report_success (test_container_fixture.ContainerFixtureTests.test_post_execution_inspection_failure_cannot_report_success) ... ok
+test_sigterm_leaves_failed_receipt_and_removes_container (test_container_fixture.ContainerFixtureTests.test_sigterm_leaves_failed_receipt_and_removes_container) ... ok
+test_command_deadline_terminates_the_descendant_process_group (test_container_fixture.QualificationHarnessTests.test_command_deadline_terminates_the_descendant_process_group) ... ok
+test_engine_inventory_overrides_a_successful_helper_receipt (test_container_fixture.QualificationHarnessTests.test_engine_inventory_overrides_a_successful_helper_receipt) ... ok
+test_source_verification_rejects_untracked_transfer_metadata (test_container_fixture.QualificationHarnessTests.test_source_verification_rejects_untracked_transfer_metadata) ... ok
+test_unexpected_case_error_retains_receipt_and_failed_result (test_container_fixture.QualificationHarnessTests.test_unexpected_case_error_retains_receipt_and_failed_result) ... ok
+test_dotted_nifti_names_and_spatial_changes (test_imaging.ImagingTests.test_dotted_nifti_names_and_spatial_changes) ... skipped 'install glimmer-rokb[imaging]'
+test_gifti_semantic_metadata_is_retained (test_imaging.ImagingTests.test_gifti_semantic_metadata_is_retained) ... ok
+test_nifti_extensions_and_scaling_remain_distinct (test_imaging.ImagingTests.test_nifti_extensions_and_scaling_remain_distinct) ... skipped 'install glimmer-rokb[imaging]'
+test_nifti_large_integer_voxels_remain_distinct (test_imaging.ImagingTests.test_nifti_large_integer_voxels_remain_distinct) ... skipped 'install glimmer-rokb[imaging]'
+test_annex_supported_hash_checks_size_and_bytes (test_run.RunnerTests.test_annex_supported_hash_checks_size_and_bytes) ... ok
+test_bypass_cannot_count_as_reproduction_or_update_baseline (test_run.RunnerTests.test_bypass_cannot_count_as_reproduction_or_update_baseline) ... ok
+test_clean_fixture_positive_and_negative (test_run.RunnerTests.test_clean_fixture_positive_and_negative) ... ok
+test_cli_missing_node_with_writeback_has_clean_failure (test_run.RunnerTests.test_cli_missing_node_with_writeback_has_clean_failure) ... ok
+test_cycle_fails (test_run.RunnerTests.test_cycle_fails) ... ok
+test_declared_container_without_datalad_never_falls_back (test_run.RunnerTests.test_declared_container_without_datalad_never_falls_back) ... ok
+test_duplicate_input_nodes_fail_before_execution (test_run.RunnerTests.test_duplicate_input_nodes_fail_before_execution) ... ok
+test_duplicate_producers_and_index_ids_fail (test_run.RunnerTests.test_duplicate_producers_and_index_ids_fail) ... ok
+test_empty_numeric_check_does_not_pass (test_run.RunnerTests.test_empty_numeric_check_does_not_pass) ... ok
+test_empty_output_set_never_passes (test_run.RunnerTests.test_empty_output_set_never_passes) ... ok
+test_empty_trace_does_not_pass (test_run.RunnerTests.test_empty_trace_does_not_pass) ... ok
+test_equivalence_empty_or_unequal_outputs_fails (test_run.RunnerTests.test_equivalence_empty_or_unequal_outputs_fails) ... ok
+test_equivalence_observed_outputs (test_run.RunnerTests.test_equivalence_observed_outputs) ... ok
+test_failed_container_command_never_calls_host (test_run.RunnerTests.test_failed_container_command_never_calls_host) ... ok
+test_failure_manifest_is_valid_json_for_nonfinite_observations (test_run.RunnerTests.test_failure_manifest_is_valid_json_for_nonfinite_observations) ... ok
+test_false_numeric_claim_in_actual_output_fails (test_run.RunnerTests.test_false_numeric_claim_in_actual_output_fails) ... ok
+test_forward_mixed_outputs_check_only_structural_trace (test_run.RunnerTests.test_forward_mixed_outputs_check_only_structural_trace) ... ok
+test_generator_is_deterministic_without_outputs (test_run.RunnerTests.test_generator_is_deterministic_without_outputs) ... ok
+test_git_commit_pin_checks_actual_blob (test_run.RunnerTests.test_git_commit_pin_checks_actual_blob) ... ok
+test_host_execution_requires_explicit_opt_in (test_run.RunnerTests.test_host_execution_requires_explicit_opt_in) ... ok
+test_input_node_conformance_cannot_be_silently_dropped (test_run.RunnerTests.test_input_node_conformance_cannot_be_silently_dropped) ... ok
+test_json_sidecar_writeback_preserves_format_and_baseline (test_run.RunnerTests.test_json_sidecar_writeback_preserves_format_and_baseline) ... ok
+test_manifest_separates_execution_and_reproduction (test_run.RunnerTests.test_manifest_separates_execution_and_reproduction) ... ok
+test_missing_output_is_not_executed (test_run.RunnerTests.test_missing_output_is_not_executed) ... ok
+test_missing_pin_is_not_accepted_even_when_planned (test_run.RunnerTests.test_missing_pin_is_not_accepted_even_when_planned) ... ok
+test_missing_validator_stops_command (test_run.RunnerTests.test_missing_validator_stops_command) ... ok
+test_modified_input_is_not_accepted (test_run.RunnerTests.test_modified_input_is_not_accepted) ... ok
+test_numeric_invalid_values_and_tolerances_fail (test_run.RunnerTests.test_numeric_invalid_values_and_tolerances_fail) ... ok
+test_numeric_overflow_cannot_create_infinite_tolerance (test_run.RunnerTests.test_numeric_overflow_cannot_create_infinite_tolerance) ... ok
+test_offline_missing_input (test_run.RunnerTests.test_offline_missing_input) ... ok
+test_output_cannot_alias_input (test_run.RunnerTests.test_output_cannot_alias_input) ... ok
+test_project_root_layouts (test_run.RunnerTests.test_project_root_layouts) ... ok
+test_raw_bytes_are_distinct_from_normalized_content (test_run.RunnerTests.test_raw_bytes_are_distinct_from_normalized_content) ... ok
+test_raw_fallback_does_not_count_as_normalized_match (test_run.RunnerTests.test_raw_fallback_does_not_count_as_normalized_match) ... ok
+test_registered_container_argv_and_digest (test_run.RunnerTests.test_registered_container_argv_and_digest) ... ok
+test_required_standard_without_input_binding_fails (test_run.RunnerTests.test_required_standard_without_input_binding_fails) ... ok
+test_stale_output_is_not_executed (test_run.RunnerTests.test_stale_output_is_not_executed) ... ok
+test_stale_sidecar_trace_cannot_mask_missing_output_trace (test_run.RunnerTests.test_stale_sidecar_trace_cannot_mask_missing_output_trace) ... ok
+test_tampered_expected_hash (test_run.RunnerTests.test_tampered_expected_hash) ... ok
+test_unknown_mode_or_provenance_fails (test_run.RunnerTests.test_unknown_mode_or_provenance_fails) ... ok
+test_unknown_standard_stops_command (test_run.RunnerTests.test_unknown_standard_stops_command) ... ok
+test_unpinned_citation_and_unverifiable_retriever_fail (test_run.RunnerTests.test_unpinned_citation_and_unverifiable_retriever_fail) ... ok
+test_wrong_input_pin_stops_command (test_run.RunnerTests.test_wrong_input_pin_stops_command) ... ok
+
+----------------------------------------------------------------------
+Ran 63 tests in 4.147s
+
+OK (skipped=3)
