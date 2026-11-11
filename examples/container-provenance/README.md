@@ -18,7 +18,8 @@ this is a trusted test worker, not a sandbox for arbitrary uploaded code.
 Requirements: Python 3.11+, Git, git-annex, and Docker. The recorded live test uses
 Ubuntu 24.04, Python 3.12, and ARM64. Other platforms require their own run.
 
-From a checkout containing this example:
+From a fresh, clean Git checkout containing this example (including no ignored
+cache files in the checked source paths):
 
 ```bash
 python3 -m venv /tmp/glimmer-container-venv
@@ -35,7 +36,7 @@ sudo mkdir -p /var/lib/glimmer-other-project
 printf 'synthetic isolated project marker\n' | sudo tee /var/lib/glimmer-other-project/marker.txt
 
 python examples/container-provenance/qualify.py \
-  --work /tmp/glimmer-container-acceptance \
+  --work /var/tmp/glimmer-container-acceptance \
   --image-archive /tmp/glimmer-python.tar \
   --source-revision "$(git rev-parse HEAD)"
 ```
@@ -44,6 +45,11 @@ Use a new `--work` directory for each invocation. A Docker archive exported on
 another engine or architecture may have a different SHA-256. The driver records
 the exact archive hash, platform, immutable image ID, source file hashes,
 dependency versions, and source revision used in that attempt.
+The driver verifies that revision against Git and checks the installed CLI and
+runner bytes against the checkout. Keep the virtual environment and generated
+evidence outside the source checkout. Before destroying the VM, copy the image,
+dataset histories, source, and evidence to storage you intend to retain; local
+temporary paths do not provide archival durability.
 
 ## What the qualification does
 
@@ -67,6 +73,10 @@ output; an incorrect baseline; a timeout; and an unavailable Docker engine.
 An expected rejection is a successful *test*, not a successful research run.
 The driver also checks that the graph, baseline, and trusted source files were
 not rewritten. It does not pass `--no-container`, `--no-gate`, or `--write-verdict`.
+The actual comparison oracle is the run-record's inline copy of the baseline.
+The positive cases cross-check that copy against the committed template and
+pinned baseline file. Negative gate tests assert their specific failure cause,
+and every case checks that only its intended paths were changed.
 
 `<work>/evidence/` retains each definition, CLI log, Glimmer manifest, result
 commit, DataLad run message, actual output, and container receipt. Receipts use
@@ -75,6 +85,12 @@ signed attestations or tamper-proof storage. `qualification.json` records the
 overall result and exact checks. Preserve the dataset and image archive as well
 if another machine must recover this exact attempt; the small evidence bundle
 alone is insufficient to restore annex content.
+Each attempt is hashed into the summary. Unexpected case failures produce a
+failed receipt, and progress is saved after each case. The command supervisor
+terminates the process group on a deadline; the helper handles SIGTERM and
+removes containers by their reserved name even if creation loses its response.
+The driver separately queries Docker after every case. Forced termination of
+the VM or an uncatchable process kill still requires operator recovery.
 
 ## Container boundary and trust
 
@@ -100,6 +116,10 @@ proof; it is checked alongside Docker's `NetworkMode=none`. These probes do not
 test every kernel escape or resource-exhaustion attack. Source/validator checks,
 image loading, and DataLad run on the trusted worker outside the container.
 The pinned base image is not a vulnerability scan or a publisher attestation.
+OCI metadata must link the selected index/manifest to the archived configuration.
+The receipt records whether an immutable image was already present in the
+engine. Each computation uses a fresh container; this is not a cold-cache image
+import test.
 
 ## Review boundary
 
