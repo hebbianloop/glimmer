@@ -45,10 +45,9 @@ print(f"Glimmer artifact hash check — {len(derivatives)} derivatives to check\
 
 results = []
 for did, dfm in derivatives:
-    recorded_hash = dfm.get("output-hash", "")
-    recorded_hash = recorded_hash.replace("sha256:", "")[:64]
+    recorded_hash = str(dfm.get("output-hash") or "").removeprefix("sha256:")
     out_path = dfm.get("output-path")
-    if not out_path or not Path(out_path).exists():
+    if not out_path or not Path(out_path).is_file():
         results.append((did, "missing", recorded_hash, None))
         print(f"  ✗ {did}: output file not on disk at {out_path}")
         continue

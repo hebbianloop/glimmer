@@ -37,6 +37,11 @@ if not PROV.exists():
     sys.exit(f"ERROR: {PROV} not found. Run workflow.py first.")
 
 provenance = json.loads(PROV.read_text())
+outputs = provenance.get("outputs", {})
+segments = outputs.get("fast_segs") or []
+products = [outputs.get("bet_brain") or {}, *segments]
+if len(segments) != 3 or any(not item.get("path") or not item.get("sha256") for item in products):
+    sys.exit("ERROR: expected a path and SHA-256 for the BET brain and all three FAST volumes; run workflow.py again.")
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 def hash_body(s: str) -> str:
@@ -133,7 +138,6 @@ nodes_index.append({"id": fast_id, "type": "method", "path": f"methods/{fast_id}
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Derivative nodes (BET output + FAST PVE maps)
 # ─────────────────────────────────────────────────────────────────────────────
-outputs = provenance.get("outputs", {})
 
 bet_deriv_id = f"derivative-{provenance['subject']}-T1w-brain"
 bet_out = outputs.get("bet_brain", {})
