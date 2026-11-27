@@ -1,6 +1,8 @@
 # Glimmer Roadmap
 
-> **v0.6.0 (current)** makes the graph *executable*: the `run-record` node type + the
+The [v0.7.0 core release](https://github.com/hebbianloop/glimmer/releases/tag/v0.7.0) adds external references, graph queries, a portable authoring skill and index maintenance. The [architecture whitepaper](https://github.com/hebbianloop/glimmer-web/pull/19) covers the workspace release, container qualification and project adoption evidence. The historical hosted-service milestone below remains a separate development target.
+
+> **v0.6.0** makes the graph *executable*: the `run-record` node type + the
 > `glimmer run` / `glimmer rerun` node runner (gate → replay → verify at three tiers).
 > See [`proactive-provenance.md`](proactive-provenance.md). Earlier milestones below.
 
