@@ -21,3 +21,9 @@ jobs:
           cp -R examples/synthetic-provenance "$tmp/example"
           cd "$tmp"
           python example/smoke.py
+          glimmer install-skill --project "$tmp/project"
+          skill="$tmp/project/.agents/skills/glimmer"
+          test -f "$skill/SKILL.md"
+          test -f "$skill/references/cli-and-query.md"
+          test -f "$skill/agents/openai.yaml"
+          test -f "$skill/scripts/glimmer-cli.py"

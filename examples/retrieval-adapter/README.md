@@ -3,7 +3,7 @@
 Exercises the `LiteratureRetriever` contract (`glimmer/tools/retrieval.py`) with a
 **stdlib-only** BM25 retriever — no vector DB, no embedding model, no torch. It
 demonstrates the literature-scout loop step from [`docs/agentic-loop.md`](../../docs/agentic-loop.md):
-index existing `publication` nodes → retrieve against a hypothesis query → emit a
+index synthetic external `reference` nodes → retrieve against a hypothesis query → emit a
 protocol-conformant `finding`.
 
 See [`docs/retrieval-adapter.md`](../../docs/retrieval-adapter.md) for the design
@@ -24,10 +24,10 @@ in its `reasoning-trace`.
 
 ## Files
 
-- `bm25_retriever.py` — `NullRetriever` + `Bm25Retriever`, two reference
+- `bm25_retriever.py` — `NullRetriever` + `Bm25Retriever`, re-exports the core
   implementations of the Protocol. `NullRetriever` exercises the protocol's
   "insufficient evidence" path; `Bm25Retriever` is a deterministic Okapi BM25.
-- `demo.py` — indexes three `publication` nodes, retrieves, emits a `finding`,
+- `demo.py` — indexes three `reference` nodes, retrieves, emits a `finding`,
   writes a Glimmer graph, and points you at the validator.
 
 ## Swapping in a real backend

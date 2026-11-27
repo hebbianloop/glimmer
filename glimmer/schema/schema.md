@@ -1,8 +1,14 @@
-# Glimmer Schema (v0.6)
+# Glimmer Schema (v0.7)
 
 Research-object knowledge-base schema. Sidecars are YAML front-matter (mirrors shimmer-kb's `memory/*.md` pattern) when standalone, or BIDS-native JSON augmented with an `_x-glimmer` block when extending a BIDS sidecar in place. Every node is a file. Edges are properties on the source node.
 
-v0.6.0 adds the [`run-record`](#run-record) node type — **one concrete, replayable invocation** (the PROV `Activity`) that binds a method + pinned, standard-validated inputs + expected outputs + the exact command + a pinned container environment + a runner-written verdict, advanced through a `planned → ready → running → executed` lifecycle. It makes the agentic loop (`docs/agentic-loop.md`) *executable*: the runner (`glimmer run` / `glimmer rerun`, `glimmer/tools/run.py`) gates inputs on their standards, replays the command via `datalad containers-run`, and verifies outputs at one of three tiers (byte-identical / numeric-within-tolerance / structural). With it: the core edges `reruns`, `consumes`, `regenerates`, `emits` (plus the optional inverse `regenerated-by` on `derivative`), and `tests-hypothesis` / `addresses-concept` allowed *from* a run-record. v0.6.0 also adds lightweight **method-registry** affordances — a `registry-ref` field and the `implements` / `equivalent-to` / `refines` edges on `method`, so a method points at a cross-project canonical pattern and the runner can *certify* equivalence by output-match — and an optional `validator` hint on `standard` for the runtime gate. (A dedicated `method-pattern` type, a published cross-institution registry, and minimal-path reproduction are deferred to v0.7.) See [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md).
+v0.7.0 closes the everyday authoring, querying, and literature-citation loop:
+- Adds the [`reference`](#reference) core node type for external cited literature (distinct from [`publication`](#publication), which represents the project's own written outputs), plus backwards-compatible `role: external-reference | project-output` on `publication` so v0.6 graphs validate cleanly without forced re-typing.
+- Adds epistemic stance edges (`supports`, `challenges`, `contradicts`, `overlaps-with`, `extends`, `superseded-by`, `cites-concept`) across `reference`, `publication`, `concept`, and `finding`, and clarifies `concept-kind` (core structural role) versus local-profile refinements such as `claim-kind`.
+- Enriches [`_glimmer-index.json`](#index-file-_glimmer-indexjson) (backwards-compatible superset of `{id, type, path}`) with optional top-level `root-node`, `entrypoints`, `generated-at` and per-node summary metadata + compact `edges` for one-read agent orientation.
+- Ships first-class CLI tools (`glimmer summary`, `query`, `neighbors`, `search`, `sync`, `status`, `init`, `hash`, `amend`, `migrate-references`, `install-skill`), a stdlib-only `Bm25Retriever` in `glimmer/tools/retrieval.py`, and a packaged installable Agent Skill (`skills/glimmer/`).
+
+v0.6.0 adds the [`run-record`](#run-record) node type — **one concrete, replayable invocation** (the PROV `Activity`) that binds a method + pinned, standard-validated inputs + expected outputs + the exact command + a pinned container environment + a runner-written verdict, advanced through a `planned → ready → running → executed` lifecycle. It makes the agentic loop (`docs/agentic-loop.md`) *executable*: the runner (`glimmer run` / `glimmer rerun`, `glimmer/tools/run.py`) gates inputs on their standards, replays the command via `datalad containers-run`, and verifies outputs at one of three tiers (byte-identical / numeric-within-tolerance / structural). With it: the core edges `reruns`, `consumes`, `regenerates`, `emits` (plus the optional inverse `regenerated-by` on `derivative`), and `tests-hypothesis` / `addresses-concept` allowed *from* a run-record. v0.6.0 also adds lightweight **method-registry** affordances — a `registry-ref` field and the `implements` / `equivalent-to` / `refines` edges on `method`, so a method points at a cross-project canonical pattern and the runner can *certify* equivalence by output-match — and an optional `validator` hint on `standard` for the runtime gate. (A dedicated `method-pattern` type, a published cross-institution registry, and minimal-path reproduction remain on the federation roadmap.) See [`docs/proactive-provenance.md`](../../docs/proactive-provenance.md).
 
 v0.5.1 adds a core **data-availability** block to `dataset` — `data-remote` (which git-annex special remote / DataLad sibling holds the bytes), `data-provenance`, `data-last-commit`, and `data-liveness` (last reachability check) — so a query over the graph can tell whether a dataset is actually pullable and from where, complementing the DataLad re-fetch coordinates. v0.5 adds the [`instrument`](#instrument) node type (a survey, task, assay, scanner, or device used to *generate* data — the measurement apparatus, distinct from the `dataset` it produces or the `experiment` it delivers), promoted to core because every empirical domain has measurement instruments. With it: two core edges — [`acquired-with`](#acquired-with) (a dataset/experiment → the instrument that produced it) and [`described-by`](#described-by) (a dataset → the experiment/paradigm that describes it). v0.5 also lets a **domain profile declare its own vocabulary** — `node-types:` and `edge-types:` lists — so a domain can add types/edges without touching the core (promote to core once ≥2 domains need it); see [Domain profiles](#domain-profiles). v0.4 adds the [`program`](#program) node type (a study/cohort/initiative as a first-class container) with the universal [`in-program`](#in-program) (same-graph membership) and [`cross-project`](#cross-project) (out-of-graph, namespaced inter-project) edges.
 
@@ -13,7 +19,7 @@ v0.3.1 makes the core schema **domain-neutral**: fields fixed by a domain standa
 ```yaml
 ---
 id: <kebab-case-slug>            # MUST be unique within the dataset
-type: <one of: dataset|method|experiment|derivative|finding|concept|standard|publication|persona|organization>
+type: <one of: dataset|method|experiment|derivative|finding|concept|standard|publication|reference|persona|organization|program|instrument|run-record>
 name: <human-readable name>
 created: <ISO8601>
 modified: <ISO8601>
@@ -242,16 +248,32 @@ Canonical edges:
 - `versions` → `standard` (relates versions of same standard)
 
 ### `publication`
-A paper draft, abstract, or preprint. Aggregates findings into a narrative.
+A project's own written output — paper draft, essay, abstract, preprint, or submitted/published manuscript. Aggregates findings and cites project methods, datasets, derivatives, concepts, and external references.
+
+Optional `role` field (`project-output` default, or `external-reference` for backwards compatibility with v0.6 graphs that modeled cited prior work as `publication`). For new graphs in v0.7.0+, prefer [`reference`](#reference) for external cited works.
 
 Canonical edges:
 - `cites-dataset` → `dataset`
 - `cites-method` → `method`
 - `cites-derivative` → `derivative`
 - `cites-finding` → `finding`
+- `cites-concept` → `concept`
+- `cites` → `reference` or `publication`
 - `aggregates` → `finding` (this paper aggregates these findings into its argument)
 - `addresses-concept` → `concept` (the publication's claim is about this concept)
+- Epistemic stance edges: `supports`, `challenges`, `contradicts`, `overlaps-with`, `extends`, `superseded-by`
 - `authored-by` → `persona` (an author of this work, as an in-graph node)
+
+### `reference`
+An **external cited work** — a prior paper, book, preprint, technical report, dataset paper, or standard document that the project cites, builds on, or challenges. Distinct from `publication` (the project's own written output): a `reference` never owns local datasets/methods/derivatives and is not expected to emit `cites-*` edges into the local project.
+
+Optional fields: `ref-kind` (`paper|book|preprint|report|chapter|dataset-paper|standard-doc|other`), `pub-status`, `authors`, `year`, `venue`, `doi`, `url`, `citekey`, `title`.
+
+Canonical edges:
+- `addresses-concept` → `concept` (this external work bears on this concept)
+- Epistemic stance edges: `supports`, `challenges`, `contradicts`, `overlaps-with`, `extends`, `superseded-by`
+- `cites` → `reference` or `publication`
+- `authored-by` → `persona`
 
 ### `persona`
 A person (researcher, collaborator) or an organizational role, as a first-class node — the in-graph identity an `authored-by` or `contributed-by` edge can resolve to. Model a `persona` when the social graph matters (who mentors whom, who leads which question); use the lighter `contributed-by` universal edge with an out-of-graph ORCID/email target when you only need attribution, not a node.
@@ -420,17 +442,26 @@ Convention: resolve duplicated nodes to the **parent** project (it owns the cano
 
 ## Index file (`_glimmer-index.json`)
 
-At the dataset root. Lists every node ID + its file path. Mandatory load for the agent.
+At the dataset root. Lists every node ID + its file path, and in v0.7.0 carries compact orientation metadata emitted by `glimmer sync` so an agent can orient across an entire research graph in a single read without opening every sidecar. Minimal `{id, type, path}` entries remain backwards-compatible.
 
 ```json
 {
-  "schema": "glimmer/v0.3.0",
+  "schema": "glimmer/v0.7.0",
   "dataset-name": "ds000114-nipype-demo",
+  "root-node": "program-demo",
+  "entrypoints": ["concept-main-question"],
+  "generated-at": "2026-11-26T00:00:00Z",
+  "node-count": 4,
   "nodes": [
-    {"id": "dataset-sub-01-T1w", "type": "dataset", "path": "datasets/sub-01-T1w.md"},
-    {"id": "method-fsl-bet-6.0.5", "type": "method", "path": "methods/fsl-bet-6.0.5.md"},
-    {"id": "derivative-sub-01-T1w-brain", "type": "derivative", "path": "derivatives/sub-01-T1w-brain.md"},
-    {"id": "finding-sub-01-brain-volume", "type": "finding", "path": "findings/sub-01-brain-volume.md"}
+    {
+      "id": "dataset-sub-01-T1w",
+      "type": "dataset",
+      "path": "datasets/sub-01-T1w.md",
+      "name": "sub-01 T1w structural scan",
+      "modified": "2026-11-26T00:00:00Z",
+      "summary": "Raw T1w anatomical scan for OpenNeuro ds000114 sub-01.",
+      "edges": [{"type": "conforms-to", "target": "standard-bids-1.11.1"}]
+    }
   ]
 }
 ```

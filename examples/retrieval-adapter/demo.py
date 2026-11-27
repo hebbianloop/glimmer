@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end demo of the retrieval adapter, stdlib-only.
 
-Indexes three `publication` nodes, retrieves against a hypothesis query with the
+Indexes three synthetic `reference` nodes, retrieves against a hypothesis query with the
 reference Bm25Retriever, emits a protocol-conformant `finding`, writes a Glimmer
 graph under rokb/, and validates it.
 
@@ -30,7 +30,7 @@ from bm25_retriever import Bm25Retriever  # noqa: E402
 NOW = "2026-06-02T00:00:00Z"
 ROKB = ROOT / "rokb"
 
-# A small literature corpus already present in the graph as `publication` nodes.
+# A small literature corpus already present in the graph as `reference` nodes.
 # In a real loop these are emitted by the literature scout walking PubMed/OpenAlex.
 PUBS = [
     {
@@ -70,13 +70,13 @@ CONCEPT = {
 
 
 def hash_body(s: str) -> str:
-    return "sha256:" + hashlib.sha256(s.encode()).hexdigest()[:16]
+    return "sha256:" + hashlib.sha256(s.encode()).hexdigest()
 
 
 def write_node(rel_path: str, frontmatter: dict, body: str = "") -> None:
     path = ROKB / rel_path
     path.parent.mkdir(parents=True, exist_ok=True)
-    frontmatter["provenance-hash"] = hash_body(body)
+    frontmatter["provenance-hash"] = hash_body("\n" + body)
     path.write_text("---\n" + yaml.dump(frontmatter, sort_keys=False, allow_unicode=True) + "---\n\n" + body)
 
 
@@ -104,12 +104,12 @@ def main() -> None:
         write_node(
             f"publications/{pub['id']}.md",
             {
-                "id": pub["id"], "type": "publication", "name": pub["name"],
-                "created": NOW, "modified": NOW, "pub-status": "published", "edges": [],
+                "id": pub["id"], "type": "reference", "name": pub["name"],
+                "created": NOW, "modified": NOW, "ref-kind": "paper", "edges": [{"type": "addresses-concept", "target": CONCEPT["id"]}] if pub is PUBS[0] else [],
             },
             pub["description"],
         )
-        index_nodes.append({"id": pub["id"], "type": "publication",
+        index_nodes.append({"id": pub["id"], "type": "reference",
                             "path": f"publications/{pub['id']}.md"})
 
     retriever = Bm25Retriever()
@@ -135,7 +135,7 @@ def main() -> None:
                         "path": "findings/finding-h1-prior-lit.md"})
 
     (ROKB / "_glimmer-index.json").write_text(json.dumps(
-        {"schema": "glimmer/v0.2.0", "dataset-name": "retrieval-adapter-demo",
+        {"schema": "glimmer/v0.7.0", "dataset-name": "retrieval-adapter-demo",
          "nodes": index_nodes}, indent=2))
 
     print(f"\nwrote {len(index_nodes)} nodes to {ROKB}")
