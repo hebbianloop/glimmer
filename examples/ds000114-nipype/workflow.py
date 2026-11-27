@@ -3,12 +3,10 @@
 
 Workflow:  T1w → BET (skull strip) → FAST (3-class tissue segmentation)
 
-Deterministic with the parameters specified below; running this twice on the
-same input should produce byte-identical outputs (modulo timestamps in NIfTI
-headers, which the verify script normalizes).
+The recorded hashes cover the output files as written, including their headers.
 """
 
-import os, sys, json, hashlib, subprocess
+import os, sys, json, hashlib
 from pathlib import Path
 
 import nipype.pipeline.engine as pe
@@ -25,7 +23,7 @@ if not COORDS_FILE.exists():
     sys.exit(f"ERROR: {COORDS_FILE} not found. Run install.sh first.")
 
 COORDS = json.loads(COORDS_FILE.read_text())
-T1W_PATH = (DATA_DIR / COORDS["t1w-relative-path"]).resolve()
+T1W_PATH = DATA_DIR.absolute() / COORDS["t1w-relative-path"]
 SUBJECT = COORDS["subject"]
 SESSION = COORDS["session"]
 
@@ -82,37 +80,23 @@ def sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
-# Locate workflow outputs
-bet_out = OUT_DIR / "anat_preproc" / "bet" / "sub-01_ses-test_T1w_brain.nii.gz"
-fast_outs = sorted((OUT_DIR / "anat_preproc" / "fast").glob("*_pve_*.nii.gz"))
+# Read the outputs reported by this invocation, including when Nipype reuses a cached node.
+completed = {node.name: node.result.outputs for node in result.nodes}
+brain = Path(completed["bet"].out_file)
+segments = [Path(path) for path in completed["fast"].partial_volume_files]
+if len(segments) != FAST_PARAMS["number_classes"]:
+    sys.exit(f"FAST reported {len(segments)} partial-volume files; expected {FAST_PARAMS['number_classes']}")
 
-outputs = {}
-if bet_out.exists():
-    outputs["bet_brain"] = {
-        "path": str(bet_out),
-        "sha256": sha256(bet_out),
-        "size-bytes": bet_out.stat().st_size,
-    }
-if fast_outs:
-    outputs["fast_segs"] = []
-    for f in fast_outs:
-        outputs["fast_segs"].append({
-            "path": str(f),
-            "sha256": sha256(f),
-            "size-bytes": f.stat().st_size,
-        })
+def output_record(path):
+    return {"path": str(path), "sha256": sha256(path), "size-bytes": path.stat().st_size}
+
+outputs = {"bet_brain": output_record(brain), "fast_segs": [output_record(path) for path in segments]}
 
 # Compute workflow definition SHA (this very file)
 this_file = Path(__file__).resolve()
 workflow_def_sha = sha256(this_file)
 
-# Record FSL version
-try:
-    fsl_version = subprocess.check_output(["bet", "-h"], stderr=subprocess.STDOUT, text=True)
-    # bet prints version in first lines; extract
-    fsl_version = fsl_version.splitlines()[0] if fsl_version else "fsl-unknown"
-except Exception:
-    fsl_version = "fsl-unknown"
+fsl_version = fsl.Info.version() or "fsl-unknown"
 
 provenance = {
     "subject": SUBJECT,
