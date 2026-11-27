@@ -3,6 +3,8 @@
 **Shady El Damaty**
 *Working draft — v0.6.0 (2026). Successor to "Reproducibility as Knowledge Graph Navigation" (CAISc 2026).*
 
+The [v0.7.0 core release](https://github.com/hebbianloop/glimmer/releases/tag/v0.7.0) adds external references, graph queries, a portable authoring skill and index maintenance. The [architecture whitepaper](https://github.com/hebbianloop/glimmer-web/pull/19) covers the workspace release, container qualification and project adoption evidence.
+
 > This is a working manuscript, not a journal submission: no anonymization, length
 > targets, or venue formatting. It states the architecture and the v0.6 contribution
 > plainly so the design can be reviewed against the implementation in this repository.
