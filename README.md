@@ -4,15 +4,22 @@
 >
 > The 2010s gave us reproducible pipelines. Glimmer is the next layer up — a typed-entity graph over those pipelines whose runs are **executable, standard-gated, and self-verifying**, so "this result reproduces" is a claim checked against recorded evidence, not a footnote you trust.
 
-[![Status: v0.6](https://img.shields.io/badge/status-v0.6-blue.svg)](https://github.com/hebbianloop/glimmer)
+[![Status: v0.7.0](https://img.shields.io/badge/status-v0.7.0-blue.svg)](https://github.com/hebbianloop/glimmer)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Template](https://img.shields.io/badge/repo-template-purple.svg)](https://github.com/hebbianloop/glimmer/generate)
 
 ## What this is
 
-Existing standards (BIDS, DataLad, NIDM, Nipype) give your project syntactic structure. Glimmer adds the **graph layer**: datasets, methods, derivatives, findings, standards, and publications become first-class typed nodes with versioned edges, distributed across per-entity sidecars. An AI agent traverses the graph to render verifiable decisions with auditable reasoning traces.
+Existing standards (BIDS, DataLad, NIDM, Nipype) give your project syntactic structure. Glimmer adds the **graph layer**: datasets, methods, derivatives, findings, concepts, standards, publications, and external references become first-class typed nodes with versioned edges, distributed across per-entity sidecars. An AI agent or researcher navigates, searches, syncs, and verifies the graph with zero database or ML dependencies.
 
-**Executable provenance (v0.6 development candidate).** `glimmer run` checks input content pins and available standard validators before executing a run-record. `glimmer rerun` distinguishes raw byte identity, normalized-content matching, numeric agreement and structural evidence checks. Host execution requires explicit opt-in; structural checks do not certify scientific interpretation. Start with [`docs/proactive-provenance.md`](docs/proactive-provenance.md) and the [portable synthetic fixture](examples/synthetic-provenance/).
+**Everyday querying, sync, retrieval & Agent Skill (v0.7.0).**
+- **Live query & retrieval CLI (`glimmer summary`, `query`, `neighbors`, `search`)**: metadata-only by default (`--no-body`) so star hubs never overflow context, plus a stdlib-only Okapi `Bm25Retriever` shipped directly in `glimmer/tools/retrieval.py`. Works over live Markdown RO-KBs and compiled `graph.json` workspace editions (`--graph`).
+- **Rich, self-navigable `_glimmer-index.json`**: backwards-compatible superset of `{id, type, path}` adding `name`, `status`, `subtype`, `claim-kind`, `role`, `modified`, `provenance-hash`, 1-line `summary`, compact `edges`, and optional `root-node` / `entrypoints`.
+- **Clean external literature vs. project outputs**: new core `reference` node type for cited prior work + backwards-compatible `role: external-reference | project-output` on `publication` + epistemic stance edges (`supports`, `challenges`, `contradicts`, `overlaps-with`, `extends`, `superseded-by`, `cites-concept`).
+- **Low-friction bootstrap, sync & drift checks**: `glimmer init`, `glimmer sync`, `glimmer status` (detects hash, index, validation, and sibling draft/artifact drift), `glimmer hash`, `glimmer amend`, and `glimmer migrate-references`.
+- **Installable Agent Skill (`skills/glimmer/`)**: install into `.agents/skills/glimmer`, `.claude/skills/glimmer`, or `.codex/skills/glimmer` via `glimmer install-skill` (or standard `skills` installers).
+
+**Executable provenance (v0.6).** `glimmer run` checks input content pins and available standard validators before executing a run-record. `glimmer rerun` distinguishes raw byte identity, normalized-content matching, numeric agreement and structural evidence checks. Host execution requires explicit opt-in; structural checks do not certify scientific interpretation. Start with [`docs/proactive-provenance.md`](docs/proactive-provenance.md) and the [portable synthetic fixture](examples/synthetic-provenance/).
 
 The [container qualification example](examples/container-provenance/) exercises
 the installed CLI with real DataLad, git-annex, and Docker in a disposable Linux
@@ -49,14 +56,21 @@ The line between "core" and "project" is the `glimmer/` directory. Anything insi
 ```
 glimmer/
 ├── schema/
-│   ├── schema.md            # v0.6 spec — 13 entity types (incl. run-record), edge taxonomy, sidecar format
+│   ├── schema.md            # v0.7 spec — 14 entity types (incl. reference + run-record), edge taxonomy, enriched index
 │   ├── frontmatter.yaml     # machine-readable contract for validators
-│   └── glimmer-version      # current core version (0.6.0)
+│   └── glimmer-version      # current core version (0.7.0)
 └── tools/
-    ├── validate.py          # schema validator (enforces agent-protocol verifiability)
+    ├── validate.py          # schema validator (core + domain profiles + agent protocol)
+    ├── query.py             # `glimmer summary` / `query` / `neighbors` / `search` (live RO-KB & --graph)
+    ├── retrieval.py         # LiteratureRetriever Protocol + stdlib Bm25Retriever & NullRetriever
+    ├── sync.py              # `glimmer init` / `sync` / `status` / `hash` / `amend` / `migrate-references`
+    ├── skill_installer.py   # `glimmer install-skill`
     ├── run.py               # node runner — `glimmer run` / `glimmer rerun` (gate → replay → verify)
     ├── cli.py               # `glimmer` CLI single entry point
     └── figure_schema.py     # render the schema diagram
+
+skills/
+└── glimmer/                 # installable cross-agent skill (SKILL.md, references/, agents/, scripts/)
 
 examples/
 ├── synthetic-provenance/    # v0.6 proactive-provenance demo: loop + 3 tiers + gate + equivalence

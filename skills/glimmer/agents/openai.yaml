@@ -1,0 +1,4 @@
+interface:
+  display_name: "Glimmer RO-KB"
+  short_description: "Query, author, sync, and validate Glimmer research-object graphs"
+  default_prompt: "Use $glimmer to orient in this project's research graph, check status/drift, and safely query or update canonical nodes."

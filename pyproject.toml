@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "glimmer-rokb"
-version = "0.6.0.dev1"
-description = "Research-object graph validation and provenance checks"
+version = "0.7.0"
+description = "Research-object knowledge base: schema validation, live graph querying, retrieval, provenance sync, and executable verification"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]
@@ -18,8 +18,31 @@ figures = ["numpy>=1.24", "matplotlib>=3.7", "networkx>=3"]
 [project.scripts]
 glimmer = "glimmer.tools.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["glimmer*"]
+[tool.setuptools]
+packages = [
+  "glimmer",
+  "glimmer.schema",
+  "glimmer.schema.profiles",
+  "glimmer.tools",
+  "glimmer._skills",
+  "glimmer._skills.glimmer",
+]
+
+[tool.setuptools.package-dir]
+glimmer = "glimmer"
+"glimmer._skills" = "skills"
 
 [tool.setuptools.package-data]
-glimmer = ["schema/*.yaml", "schema/*.md", "schema/glimmer-version", "schema/profiles/*.yaml", "schema/profiles/*.md"]
+glimmer = [
+  "schema/*.yaml",
+  "schema/*.md",
+  "schema/glimmer-version",
+  "schema/profiles/*.yaml",
+  "schema/profiles/*.md",
+]
+"glimmer._skills.glimmer" = [
+  "SKILL.md",
+  "agents/*.yaml",
+  "references/*.md",
+  "scripts/*.py",
+]

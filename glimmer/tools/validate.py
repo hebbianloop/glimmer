@@ -4,7 +4,7 @@
 Checks:
   - every node sidecar parses as valid YAML front-matter
   - required fields are present per the node type
-  - field types match their type-spec
+  - field types / controlled enums match their type-spec where enforced
   - every edge's `target` refers to a node that exists in the index
   - every edge's `type` is in the `edges-allowed` set for its source type
   - the index file enumerates exactly the sidecars on disk
@@ -23,6 +23,7 @@ LOCAL_PROFILES_DIRNAME = "_glimmer-profiles"        # researcher profiles, local
 # tokens like `T1w`, `T2w`, version strings like `1.11.1`, and similar domain conventions.
 NAME_PATTERN = re.compile(r"^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*$")
 OUT_OF_GRAPH_EDGES = {"contributed-by", "cross-project"}  # target is out-of-graph: an identifier (ORCID/email) or a node in another project's graph (namespaced id), not a node in this index
+PUBLICATION_ROLES = {"project-output", "external-reference"}
 
 
 class _StrictLoader(yaml.SafeLoader):
@@ -52,7 +53,7 @@ _StrictLoader.add_constructor(
 
 def load_schema():
     try:
-        return yaml.load(SCHEMA_PATH.read_text(), Loader=_StrictLoader)
+        return yaml.load(SCHEMA_PATH.read_text(encoding="utf-8"), Loader=_StrictLoader)
     except yaml.YAMLError as e:
         sys.exit(f"FATAL: schema {SCHEMA_PATH} is malformed: {e}")
 
@@ -82,7 +83,7 @@ def load_profiles(rokb_path):
             if pf.name.startswith("_"):          # _profile.schema.yaml, etc.
                 continue
             try:
-                doc = yaml.load(pf.read_text(), Loader=_StrictLoader) or {}
+                doc = yaml.load(pf.read_text(encoding="utf-8"), Loader=_StrictLoader) or {}
             except yaml.YAMLError as e:
                 warns.append(f"{pf}: YAML parse error: {e}; profile skipped")
                 continue
@@ -97,28 +98,55 @@ def load_profiles(rokb_path):
     return profiles, warns
 
 
+NON_SIDECAR_DOCS = {"README.md", "AGENTS.md", "AGENTS.glimmer.md", "CHANGELOG.md"}
+
+
+def is_internal_path(path: Path, rokb_path: Path) -> bool:
+    """Skip internal `_glimmer-*` directories (profiles, amendments, caches), index, and non-sidecar docs."""
+    if path.name == "_glimmer-index.json" or path.name in NON_SIDECAR_DOCS:
+        return True
+    try:
+        rel_parts = path.relative_to(rokb_path).parts
+    except ValueError:
+        rel_parts = path.parts
+    return any(part.startswith("_glimmer-") or part.startswith(".") for part in rel_parts[:-1])
+
+
+def iter_sidecar_paths(rokb_path: Path):
+    """Yield sorted sidecar paths (.md and .json) inside `rokb_path`, skipping internal dirs."""
+    rokb_path = Path(rokb_path)
+    paths = list(rokb_path.glob("**/*.md")) + list(rokb_path.glob("**/*.json"))
+    return sorted(p for p in paths if p.is_file() and not is_internal_path(p, rokb_path))
+
+
 def read_sidecar(path: Path):
     """Return (frontmatter_dict, body_str) or raise ValueError."""
-    text = path.read_text()
-    if text.startswith("---\n"):
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("---\n") or text.startswith("---\r\n"):
+        normalized = text.replace("\r\n", "\n")
         try:
-            _, fm, body = text.split("---\n", 2)
+            _, fm, body = normalized.split("---\n", 2)
         except ValueError:
             raise ValueError(f"{path}: malformed front-matter delimiters")
         try:
             fm_dict = yaml.load(fm, Loader=_StrictLoader) or {}
         except yaml.YAMLError as e:
             raise ValueError(f"{path}: YAML parse error: {e}")
+        if not isinstance(fm_dict, dict):
+            raise ValueError(f"{path}: YAML front-matter must be a mapping")
         return fm_dict, body
     if text.startswith("{"):
         try:
-            return json.loads(text), ""
+            doc = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"{path}: JSON parse error: {e}")
+        if not isinstance(doc, dict):
+            raise ValueError(f"{path}: JSON sidecar must be an object")
+        return doc, ""
     raise ValueError(f"{path}: sidecar must start with '---' (YAML front-matter) or '{{' (JSON)")
 
 
-def validate(rokb_path: Path, schema: dict):
+def validate(rokb_path: Path, schema: dict, *, strict: bool = False):
     errors, warnings = [], []
     rokb_path = Path(rokb_path)
 
@@ -128,18 +156,32 @@ def validate(rokb_path: Path, schema: dict):
         errors.append(f"{index_path}: missing")
         return errors, warnings
     try:
-        index = json.loads(index_path.read_text())
+        index = json.loads(index_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         errors.append(f"{index_path}: parse error: {e}")
         return errors, warnings
 
-    if "nodes" not in index:
-        errors.append(f"{index_path}: missing required field `nodes`")
+    if not isinstance(index, dict) or "nodes" not in index or not isinstance(index["nodes"], list):
+        errors.append(f"{index_path}: missing required list field `nodes`")
         return errors, warnings
 
-    index_ids = {n["id"]: n for n in index["nodes"]}
-    if len(index_ids) != len(index["nodes"]):
-        errors.append(f"{index_path}: duplicate node IDs in index")
+    index_ids = {}
+    for entry in index["nodes"]:
+        if not isinstance(entry, dict) or not entry.get("id"):
+            errors.append(f"{index_path}: every entry in `nodes` must be an object with `id`")
+            continue
+        if entry["id"] in index_ids:
+            errors.append(f"{index_path}: duplicate node ID `{entry['id']}` in index")
+        index_ids[entry["id"]] = entry
+
+    # Validate optional top-level index anchors (v0.7.0)
+    root_node = index.get("root-node")
+    if root_node and root_node not in index_ids:
+        errors.append(f"{index_path}: `root-node` `{root_node}` not in index")
+    for ep in (index.get("entrypoints") or []):
+        ep_id = ep.get("id") if isinstance(ep, dict) else ep
+        if ep_id and ep_id not in index_ids:
+            errors.append(f"{index_path}: entrypoint `{ep_id}` not in index")
 
     # 1b. Domain profiles. A node resolves to a profile by its `domain` field,
     # then the KB-level `default-domain` (index), then the core schema default.
@@ -159,11 +201,11 @@ def validate(rokb_path: Path, schema: dict):
     kb_extra_types, kb_extra_edges = _profile_extras(profiles.get(kb_default_domain))
 
     # 2. Walk sidecars on disk
-    sidecar_paths = list(rokb_path.glob("**/*.md")) + list(rokb_path.glob("**/*.json"))
-    sidecar_paths = [p for p in sidecar_paths if p.name != "_glimmer-index.json"]
+    sidecar_paths = iter_sidecar_paths(rokb_path)
 
     on_disk_ids = set()
     sidecar_by_id = {}
+    incoming_by_id = {}
 
     for path in sidecar_paths:
         try:
@@ -176,7 +218,7 @@ def validate(rokb_path: Path, schema: dict):
 
         if not node_id:
             errors.append(f"{path}: missing required field `id`"); continue
-        if not NAME_PATTERN.match(node_id):
+        if not isinstance(node_id, str) or not NAME_PATTERN.match(node_id):
             errors.append(f"{path}: id `{node_id}` is not kebab-case")
         if node_id in on_disk_ids:
             errors.append(f"{path}: duplicate node id `{node_id}` (already seen)")
@@ -186,6 +228,9 @@ def validate(rokb_path: Path, schema: dict):
         # 3. Check node type — core OR a profile-declared domain node-type (v0.5).
         if not node_type:
             errors.append(f"{path}: missing required field `type`"); continue
+        if node_id in index_ids and index_ids[node_id].get("type") and index_ids[node_id]["type"] != node_type:
+            errors.append(f"{path}: index type `{index_ids[node_id]['type']}` does not match sidecar type `{node_type}`")
+
         # Resolve this node's domain (its `domain` field, else the KB default) + that
         # profile's declared node-types / edge-types, unioned with the KB-default extras.
         domain = fm.get("domain") or kb_default_domain
@@ -208,10 +253,14 @@ def validate(rokb_path: Path, schema: dict):
             warnings.append(f"{path}: domain `{fm['domain']}` has no profile (curated or local); "
                             f"domain-specific fields unchecked. {_profile_hint(fm['domain'])}")
 
-        # 4. Required fields present
+        # 4. Required fields present + controlled role enum check
         for field in required:
             if field not in fm:
                 errors.append(f"{path}: missing required field `{field}` for type `{node_type}`")
+
+        if node_type == "publication" and "role" in fm and fm["role"] not in PUBLICATION_ROLES:
+            errors.append(f"{path}: publication `role` `{fm['role']}` invalid; "
+                          f"expected one of {sorted(PUBLICATION_ROLES)}")
 
         # 5. Validate edges
         for edge in (fm.get("edges") or []):
@@ -229,13 +278,15 @@ def validate(rokb_path: Path, schema: dict):
                 errors.append(f"{path}: edge missing `target`")
             elif etype not in OUT_OF_GRAPH_EDGES and target not in index_ids:
                 errors.append(f"{path}: edge target `{target}` not in index")
+            elif etype not in OUT_OF_GRAPH_EDGES:
+                incoming_by_id.setdefault(target, []).append((node_id, etype))
 
     # 6. Index ↔ disk consistency
     indexed_only = set(index_ids) - on_disk_ids
     disk_only = on_disk_ids - set(index_ids)
-    for nid in indexed_only:
+    for nid in sorted(indexed_only):
         errors.append(f"index lists `{nid}` but no sidecar found on disk")
-    for nid in disk_only:
+    for nid in sorted(disk_only):
         errors.append(f"sidecar `{nid}` exists on disk but is not in index")
 
     # 7. Hints (warnings) + agent-protocol enforcement
@@ -250,6 +301,8 @@ def validate(rokb_path: Path, schema: dict):
             if "based-on" not in fm or not fm.get("based-on"):
                 errors.append(f"{path}: finding node missing required `based-on` field (the evidence chain)")
         edge_types = {e.get("type") for e in edges if isinstance(e, dict)}
+        non_program_out = [e for e in edges if isinstance(e, dict) and e.get("type") != "in-program"]
+        inc = incoming_by_id.get(node_id, [])
 
         # run-record structured-field + lifecycle checks (v0.6). The generic
         # required-field check (section 4) ensures method/command/status/inputs/
@@ -320,44 +373,81 @@ def validate(rokb_path: Path, schema: dict):
                 warnings.append(f"{path}: run-record status=executed but no `replay-verdict` "
                                 f"(run `glimmer run`/`rerun` with --write-verdict)")
 
-        if node_type == "qc-artifact" and "conforms-to" not in edge_types:
-            warnings.append(f"{path}: qc-artifact has no `conforms-to` edge to a standard")
         if node_type == "dataset" and "produced-by" not in edge_types:
             warnings.append(f"{path}: dataset has no `produced-by` edge")
-        if node_type == "publication" and not any(t.startswith("cites") for t in edge_types):
-            warnings.append(f"{path}: publication has no `cites-*` edges")
+
+        # v0.7.0: `reference` is for external cited literature — never expects local `cites-*`
+        # edges, only that it connects to at least one node beyond `in-program`.
+        if node_type == "reference":
+            if not non_program_out and not inc:
+                warnings.append(f"{path}: reference has no incoming or outgoing graph edges "
+                                f"(link via `addresses-concept`, `supports`/`challenges`, or `cites`)")
+
+        # v0.7.0: `publication` separates project outputs from backwards-compatible external refs.
+        if node_type == "publication":
+            role = fm.get("role")
+            if role == "external-reference":
+                if not non_program_out and not inc:
+                    warnings.append(f"{path}: external-reference publication has no graph edges")
+            else:
+                has_local_cites = any(t.startswith("cites") or t == "aggregates" for t in edge_types)
+                if not has_local_cites:
+                    warnings.append(
+                        f"{path}: publication has no `cites-*` or `aggregates` edges "
+                        f"(if this is cited external literature, use `type: reference` or set `role: external-reference`)"
+                    )
+
+        if strict and node_type == "concept" and "claim-kind" in fm and "concept-kind" not in fm:
+            warnings.append(f"{path}: concept sets profile `claim-kind` without core `concept-kind`")
 
     return errors, warnings
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description="Validate a Glimmer RO-KB against the schema.")
     ap.add_argument("path", help="path to a Glimmer RO-KB directory")
+    ap.add_argument("--strict", action="store_true", help="enable extra advisory checks")
+    ap.add_argument("--json", action="store_true", dest="as_json", help="emit machine-readable JSON")
     args = ap.parse_args()
 
     schema = load_schema()
-    errors, warnings = validate(args.path, schema)
+    errors, warnings = validate(args.path, schema, strict=args.strict)
 
     profiles, _ = load_profiles(args.path)
-    profile_list = ", ".join(f"{n} ({p.get('_tier', 'curated')})" for n, p in sorted(profiles.items())) or "none"
-    print(f"Glimmer schema: {schema.get('schema-version', '?')}")
-    print(f"Profiles: {profile_list}")
-    print(f"Target: {args.path}")
-    print(f"Errors:   {len(errors)}")
-    print(f"Warnings: {len(warnings)}")
+    if args.as_json:
+        payload = {
+            "schema": schema.get("schema-version", "?"),
+            "target": str(args.path),
+            "profiles": {n: p.get("_tier", "curated") for n, p in sorted(profiles.items())},
+            "valid": len(errors) == 0,
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "errors": errors,
+            "warnings": warnings,
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        profile_list = ", ".join(f"{n} ({p.get('_tier', 'curated')})" for n, p in sorted(profiles.items())) or "none"
+        print(f"Glimmer schema: {schema.get('schema-version', '?')}")
+        print(f"Profiles: {profile_list}")
+        print(f"Target: {args.path}")
+        print(f"Errors:   {len(errors)}")
+        print(f"Warnings: {len(warnings)}")
 
-    if errors:
-        print("\n--- errors ---")
-        for e in errors: print(f"  ✗ {e}")
-    if warnings:
-        print("\n--- warnings ---")
-        for w in warnings: print(f"  ! {w}")
+        if errors:
+            print("\n--- errors ---")
+            for e in errors: print(f"  ✗ {e}")
+        if warnings:
+            print("\n--- warnings ---")
+            for w in warnings: print(f"  ! {w}")
+
+        if not errors and not warnings:
+            print("\n✓ valid")
 
     if errors:
         sys.exit(1)
     if warnings:
         sys.exit(2)
-    print("\n✓ valid")
     sys.exit(0)
 
 

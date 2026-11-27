@@ -1,4 +1,4 @@
-# Glimmer Schema v0.6.0 — Front-Matter Field Definitions
+# Glimmer Schema v0.7.0 — Front-Matter Field Definitions
 #
 # This file is the machine-readable contract for what fields each entity type
 # must, may, and may not have in its sidecar front-matter. Validators consume
@@ -10,6 +10,17 @@
 #   optional:        — fields that MAY be present
 #   edges-allowed:   — edge types whose target is permitted from this node type
 #   body-required:   — whether the markdown body after the front-matter is required
+#
+# v0.7.0: added the `reference` core node type for external cited literature
+# (distinct from `publication`, which models the project's own outputs), plus
+# backwards-compatible `role: external-reference | project-output` on `publication`
+# so v0.6 graphs validate cleanly without forced re-typing. Added epistemic stance
+# edges (`supports`, `challenges`, `contradicts`, `overlaps-with`, `extends`,
+# `superseded-by`, `cites-concept`) across `reference`, `publication`, `concept`,
+# and `finding`. Enriched `_glimmer-index.json` (backwards-compatible superset of
+# `{id, type, path}`) with optional top-level `root-node`/`entrypoints`/`generated-at`
+# and per-node summary metadata + compact `edges` for one-read agent orientation.
+# Clarified `concept-kind` (structural role) vs local-profile `claim-kind`.
 #
 # v0.3.1: made the core schema domain-NEUTRAL. Domain-specific fields (BIDS
 # modality, fMRI design, Nipype node kind, neuroimaging output-kind) moved out of
@@ -43,7 +54,7 @@
 # can certify equivalence by output-match. `standard` gains an optional `validator`
 # hint so the runner's pre-run standards gate knows how to check conformance.
 
-schema-version: "0.6.0"
+schema-version: "0.7.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # domain profiles — this core schema defines only DOMAIN-NEUTRAL node types.
@@ -66,7 +77,7 @@ default-domain: neuroimaging
 _common:
   required:
     id:                string                   # kebab-case, unique within dataset
-    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,concept,persona,organization,program,instrument,run-record}>
+    type:              <enum:{dataset,method,experiment,derivative,finding,standard,publication,reference,concept,persona,organization,program,instrument,run-record}>
     name:              string                   # human-readable
     created:           datetime                 # ISO 8601, UTC preferred
     modified:          datetime                 # ISO 8601, UTC preferred
@@ -203,11 +214,16 @@ finding:
     challenged-by:     [list-of-node-ids]       # findings or publications that contradict
     supports:          [list-of-node-ids]       # findings or publications this reinforces
   edges-allowed:
-    - based-on            # → derivative or dataset
+    - based-on            # → derivative, dataset, or reference
     - addresses-concept   # → concept
     - cited-in            # → publication
-    - challenged-by       # → finding or publication
-    - supports            # → finding or publication
+    - challenged-by       # → finding, publication, or reference
+    - challenges          # → finding, publication, reference, or concept
+    - contradicts         # → finding, publication, reference, or concept
+    - supports            # → finding, publication, reference, or concept
+    - overlaps-with       # → finding, publication, reference, or concept
+    - extends             # → finding, publication, reference, or concept
+    - superseded-by       # → finding
   body-required: false
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +265,9 @@ concept:
   required:
     statement:         string                   # the question / hypothesis / theme, as a sentence
   optional:
+    # Structural role within the core schema. Domain profiles may add orthogonal
+    # epistemic/project tags (e.g. `claim-kind`, `evidence-status`, `design-status`)
+    # without shadowing `concept-kind`.
     concept-kind:      <enum:{research-question,hypothesis,theme,construct}>
     status:            <enum:{open,under-investigation,supported,refuted,superseded}>
     falsifiable:       bool                      # true when stated as a testable claim
@@ -259,15 +278,19 @@ concept:
   edges-allowed:
     - decomposes-into      # → concept (a question decomposed into sub-hypotheses)
     - extends-concept      # → concept (specialization / theory inheritance)
+    - extends              # → concept, reference, or publication
     - subsumed-by          # → concept (becomes a special case of a broader concept)
     - competes-with        # → concept (rival hypothesis)
+    - overlaps-with        # → concept, reference, or publication (partial conceptual overlap)
     - superseded-by        # → concept (a refined replacement supersedes this one)
-    - supports             # → finding, publication, or concept (reinforcing evidence)
-    - contradicts          # → finding, publication, or concept (contradictory evidence)
+    - supports             # → finding, publication, reference, or concept (reinforcing evidence)
+    - challenges           # → finding, publication, reference, or concept (tension / boundary condition)
+    - contradicts          # → finding, publication, reference, or concept (contradictory evidence)
     - authored-by          # → persona (who framed this question / leads it)
     - funded-by            # → organization (the funder of this line of work)
     - tested-by-experiment # → experiment (a paradigm designed to test this concept)
     - cited-in             # → publication
+    - cites                # → reference or publication (grounding citation)
   body-required: false                          # meta-graph concepts may be bodyless
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,15 +316,21 @@ standard:
   body-required: true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# publication — paper draft, abstract, preprint
+# publication — a project's own written output (paper draft, abstract, preprint,
+# submitted/published manuscript). For external cited prior work in v0.7.0+,
+# prefer the dedicated `reference` node type; for backwards compatibility with
+# v0.6 graphs, `publication` also accepts `role: external-reference`.
 # ─────────────────────────────────────────────────────────────────────────────
 publication:
   inherits: _common
   required:
     pub-status:        <enum:{draft,submitted,accepted,published,abstract,preprint}>
   optional:
+    role:              <enum:{project-output,external-reference}>  # default: project-output
     venue:             string
     doi:               string
+    url:               string
+    citekey:           string
     year:              int
     title:             string
     authors:           [list-of-strings]
@@ -310,9 +339,48 @@ publication:
     - cites-method
     - cites-derivative
     - cites-finding
-    - cites             # generic citation
+    - cites-concept     # → concept (explicit claim/question citation)
+    - cites             # → reference or publication (generic citation)
     - aggregates        # → finding (this paper aggregates these findings)
-    - addresses-concept # → concept (scout-emitted lit addressing a concept)
+    - addresses-concept # → concept (scout-emitted lit or paper addressing a concept)
+    - supports          # → concept, finding, reference, or publication
+    - challenges        # → concept, finding, reference, or publication
+    - contradicts       # → concept, finding, reference, or publication
+    - overlaps-with     # → concept, finding, reference, or publication
+    - extends           # → concept, finding, reference, or publication
+    - superseded-by     # → publication (newer revision/edition supersedes this one)
+    - authored-by       # → persona
+  body-required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# reference — an external cited work (paper, book, preprint, report, dataset
+# paper, or standard document) referenced by the project. Unlike `publication`,
+# a `reference` does not own local datasets/methods/derivatives and is never
+# expected to emit `cites-*` edges into the local project; instead it connects
+# via epistemic stance edges (`supports`, `challenges`, `contradicts`,
+# `overlaps-with`, `extends`, `addresses-concept`) and incoming `cites` edges.
+# ─────────────────────────────────────────────────────────────────────────────
+reference:
+  inherits: _common
+  optional:
+    ref-kind:          <enum:{paper,book,preprint,report,chapter,dataset-paper,standard-doc,other}>
+    pub-status:        <enum:{published,preprint,working-paper,in-press,archived,other}>
+    venue:             string
+    doi:               string
+    url:               string
+    citekey:           string
+    year:              int
+    title:             string
+    authors:           [list-of-strings]
+  edges-allowed:
+    - addresses-concept # → concept (this external work bears on this concept)
+    - supports          # → concept, finding, or publication (supporting precedent/evidence)
+    - challenges        # → concept, finding, or publication (boundary condition / tension)
+    - contradicts       # → concept, finding, or publication (conflicting evidence)
+    - overlaps-with     # → concept, finding, reference, or publication
+    - extends           # → concept, reference, or publication
+    - superseded-by     # → reference (newer work or erratum supersedes this one)
+    - cites             # → reference or publication
     - authored-by       # → persona
   body-required: false
 
@@ -470,20 +538,27 @@ run-record:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # index file — required at the dataset root
+# v0.7.0: backwards-compatible enriched format. Each entry in `nodes` MUST carry
+# {id, type, path} and SHOULD carry compact orientation metadata emitted by
+# `glimmer sync`: name, status, subtype, claim-kind, role, modified,
+# provenance-hash, summary, and edges ([{type, target}]).
 # ─────────────────────────────────────────────────────────────────────────────
 _glimmer-index:
   filename: "_glimmer-index.json"
   required:
-    schema:            string                   # e.g., "glimmer/v0.3.1"
+    schema:            string                   # e.g., "glimmer/v0.7.0"
     dataset-name:      string
     node-count:        int
-    nodes:             [list-of-nodes]
+    nodes:             [list-of-nodes]          # [{id, type, path, name?, status?, subtype?, claim-kind?, role?, modified?, provenance-hash?, summary?, edges?}]
   optional:
     created:           datetime
+    generated-at:      datetime                 # last `glimmer sync` index generation timestamp
     description:       string
     upstream-graph:    string
     default-domain:    string                   # domain profile for nodes that omit `domain`;
                                                  # overrides the core schema default. e.g. "neuroimaging"
+    root-node:         string                   # optional root program/anchor node ID
+    entrypoints:       [list-of-strings]        # optional curated starting node IDs for orientation
 
 # ─────────────────────────────────────────────────────────────────────────────
 # validator hints
@@ -494,7 +569,8 @@ _validator-hints:
     - "derivative node has no `output-hash`"
     - "finding node has no `based-on` edge or empty list"
     - "method node has no `version` field"
-    - "publication node has no `cites-*` edges"
+    - "project-output publication node has no `cites-*` or `aggregates` edges"
+    - "reference node is disconnected from the graph (no incoming or non-program outgoing edges)"
     - "run-record output-pin has no `expected-hash` (status=executed)"
     - "run-record output/input/method node not mirrored by a regenerates/consumes/reruns edge"
     - "run-record status=executed but no `replay-verdict`"
@@ -504,6 +580,7 @@ _validator-hints:
     - "edge target does not exist in the index"
     - "edge type is not in the allowed list for the source node's type"
     - "required field is missing"
+    - "publication `role` is set to a value outside `{project-output, external-reference}`"
     - "finding produced-by-agent is set but reasoning-trace is missing"
     - "run-record produced-by-agent is set but reasoning-trace is missing"
     - "run-record output-pin `node` is missing or not a `derivative`"

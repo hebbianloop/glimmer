@@ -15,7 +15,7 @@ The adapter resolves both by inverting the relationship: **the retriever indexes
 
 ## The contract
 
-Defined in [`glimmer/tools/retrieval.py`](../glimmer/tools/retrieval.py). Core ships only the Protocol plus a trace helper — **zero new dependencies**. Concrete retrievers live in project forks.
+Defined in [`glimmer/tools/retrieval.py`](../glimmer/tools/retrieval.py). Core ships the `LiteratureRetriever` Protocol, the `finding_from_retrieval` trace helper, and two zero-heavy-dependency stdlib implementations (`Bm25Retriever` and `NullRetriever`) so `glimmer search` works out of the box with **zero new dependencies**. Heavier semantic/vector RAG backends remain project-side implementations behind the same Protocol.
 
 ```python
 @runtime_checkable
