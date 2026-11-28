@@ -2,6 +2,17 @@
 
 All notable changes to Glimmer (`glimmer-rokb`) are documented in this file.
 
+## [0.7.1] - 2026-11-28
+
+### Added
+- **PyPI Trusted Publishing & archival citation metadata**:
+  - Added `.github/workflows/publish.yml` to test, build (`python -m build`), validate (`twine check --strict`), wheel smoke-test, and publish `glimmer-rokb` via PyPI OIDC Trusted Publishing on GitHub Release (plus manual TestPyPI/PyPI dispatch).
+  - Enriched `pyproject.toml` with authors, classifiers, keywords, and project URLs for PyPI.
+  - Added `CITATION.cff` for archival software citation and Zenodo DOI integration.
+
+### Fixed
+- **Canonical locked git-annex replay (PR #20)**: Recorded exact BET/FAST outputs in locked annex checkouts and reported incomplete historical output records fail-closed before publishing graph nodes.
+
 ## [0.7.0] - 2026-11-26
 
 ### Added

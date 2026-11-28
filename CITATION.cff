@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: "Glimmer: Research-Object Knowledge Base (glimmer-rokb)"
+message: "If you use Glimmer in your research or scientific workflow, please cite this software."
+type: software
+authors:
+  - family-names: El Damaty
+    given-names: Shady
+    email: se394@georgetown.edu
+    affiliation: "Holonym Foundation / Hebbian Loop"
+repository-code: "https://github.com/hebbianloop/glimmer"
+url: "https://glimmer.science"
+abstract: >-
+  Glimmer (glimmer-rokb) is a research-object knowledge base schema, validator,
+  live graph query and BM25 retrieval CLI, provenance drift detector, executable
+  run-record verifier, and cross-agent scientific skill built over typed
+  YAML-frontmatter Markdown sidecars.
+keywords:
+  - research-objects
+  - knowledge-graph
+  - provenance
+  - reproducibility
+  - ai-for-science
+  - neuroimaging
+  - datalad
+license: MIT
+version: "0.7.1"
+date-released: "2026-11-28"
