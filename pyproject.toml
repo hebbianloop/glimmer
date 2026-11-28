@@ -1,15 +1,48 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "glimmer-rokb"
-version = "0.7.0"
+version = "0.7.1"
 description = "Research-object knowledge base: schema validation, live graph querying, retrieval, provenance sync, and executable verification"
 readme = "README.md"
+authors = [
+  {name = "Shady El Damaty", email = "se394@georgetown.edu"},
+]
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+  "research-objects",
+  "knowledge-graph",
+  "provenance",
+  "reproducibility",
+  "ai-for-science",
+  "neuroimaging",
+  "datalad",
+  "ro-kb",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.urls]
+Homepage = "https://glimmer.science"
+Repository = "https://github.com/hebbianloop/glimmer"
+Issues = "https://github.com/hebbianloop/glimmer/issues"
+Documentation = "https://github.com/hebbianloop/glimmer/blob/main/README.md"
+Changelog = "https://github.com/hebbianloop/glimmer/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 imaging = ["nibabel>=5"]
@@ -26,6 +59,9 @@ packages = [
   "glimmer.tools",
   "glimmer._skills",
   "glimmer._skills.glimmer",
+  "glimmer._skills.glimmer.agents",
+  "glimmer._skills.glimmer.references",
+  "glimmer._skills.glimmer.scripts",
 ]
 
 [tool.setuptools.package-dir]
